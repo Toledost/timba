@@ -13,7 +13,9 @@
       "adaptiveIcon": {
         "backgroundColor": "#0d1117"
       },
-      "package": "com.timba.poker"
+      "package": "com.timba.poker",
+      "enableProguardInReleaseBuilds": true,
+      "enableShrinkResourcesInReleaseBuilds": true
     },
     "web": {
       "bundler": "metro",
