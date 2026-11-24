@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { Text } from 'react-native';
 import { useConfigStore, usePlayersStore, useSessionStore } from '../src/store';
 import { Colors } from '../src/theme';
 
@@ -39,48 +40,31 @@ export default function RootLayout() {
           name="index"
           options={{
             title: 'Mesa',
-            tabBarLabel: 'Mesa',
-            tabBarIcon: ({ color }) => (
-              <TabIcon label="♠" color={color} />
-            ),
+            tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>♠</Text>,
           }}
         />
         <Tabs.Screen
           name="players"
           options={{
             title: 'Jugadores',
-            tabBarLabel: 'Jugadores',
-            tabBarIcon: ({ color }) => (
-              <TabIcon label="👤" color={color} />
-            ),
+            tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>👤</Text>,
           }}
         />
         <Tabs.Screen
           name="history"
           options={{
             title: 'Historial',
-            tabBarLabel: 'Historial',
-            tabBarIcon: ({ color }) => (
-              <TabIcon label="📋" color={color} />
-            ),
+            tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📋</Text>,
           }}
         />
         <Tabs.Screen
           name="settings"
           options={{
             title: 'Config',
-            tabBarLabel: 'Config',
-            tabBarIcon: ({ color }) => (
-              <TabIcon label="⚙" color={color} />
-            ),
+            tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>⚙</Text>,
           }}
         />
       </Tabs>
     </>
   );
-}
-
-function TabIcon({ label, color }: { label: string; color: string }) {
-  const { Text } = require('react-native');
-  return <Text style={{ fontSize: 20, color }}>{label}</Text>;
 }

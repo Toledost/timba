@@ -20,11 +20,13 @@ export interface SessionPlayer {
   balance: number; // in $, positive = winning, negative = owing
 }
 
+export const BANCA_ID = '__banca__';
+
 export interface Transaction {
   id: string;
   timestamp: number;
-  fromPlayerId: string; // who pays / loses chips
-  toPlayerId: string;   // who receives / gains chips
+  fromPlayerId: string; // who pays / loses chips — BANCA_ID = banca
+  toPlayerId: string;   // who receives / gains chips — BANCA_ID = banca
   amount: number;       // always positive
   note?: string;
 }

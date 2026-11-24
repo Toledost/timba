@@ -21,6 +21,7 @@ interface TransactionModalProps {
   playerMap: Record<string, Player>;
   gameValue: number;
   initialFromId?: string;
+  initialToId?: string;
   onClose: () => void;
   onConfirm: (fromId: string, toId: string, amount: number, note?: string) => void;
 }
@@ -31,22 +32,23 @@ export function TransactionModal({
   playerMap,
   gameValue,
   initialFromId,
+  initialToId,
   onClose,
   onConfirm,
 }: TransactionModalProps) {
   const [fromId, setFromId] = useState<string>(initialFromId ?? '');
-  const [toId, setToId] = useState<string>('');
+  const [toId, setToId] = useState<string>(initialToId ?? '');
   const [amountStr, setAmountStr] = useState<string>('');
   const [note, setNote] = useState<string>('');
   const [useGames, setUseGames] = useState(true);
 
   const reset = useCallback(() => {
     setFromId(initialFromId ?? '');
-    setToId('');
+    setToId(initialToId ?? '');
     setAmountStr('');
     setNote('');
     setUseGames(true);
-  }, [initialFromId]);
+  }, [initialFromId, initialToId]);
 
   const handleClose = () => {
     reset();
@@ -102,25 +104,25 @@ export function TransactionModal({
       >
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>Nueva Transacción</Text>
+            <Text style={styles.title}>{initialToId ? 'Vender juego' : 'Nueva Transacción'}</Text>
             <TouchableOpacity onPress={handleClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.closeBtn}>✕</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            {/* FROM selector */}
-            <Text style={styles.sectionLabel}>PAGA (pierde fichas)</Text>
+            {/* TO selector — vendedor arriba */}
+            <Text style={styles.sectionLabel}>VENDE (cancela deuda)</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.playerScroll}>
               {players.map((sp) => {
                 const p = playerMap[sp.playerId];
                 if (!p) return null;
-                const selected = fromId === sp.playerId;
+                const selected = toId === sp.playerId;
                 return (
                   <TouchableOpacity
                     key={sp.playerId}
-                    style={[styles.playerChip, selected && styles.playerChipFromSelected]}
-                    onPress={() => setFromId(sp.playerId)}
+                    style={[styles.playerChip, selected && styles.playerChipToSelected]}
+                    onPress={() => setToId(sp.playerId)}
                   >
                     <Text style={[styles.playerChipText, selected && styles.playerChipTextSelected]}>
                       {p.alias || p.name}
@@ -133,18 +135,18 @@ export function TransactionModal({
               })}
             </ScrollView>
 
-            {/* TO selector */}
-            <Text style={styles.sectionLabel}>RECIBE (gana fichas)</Text>
+            {/* FROM selector — comprador abajo */}
+            <Text style={styles.sectionLabel}>COMPRA (aumenta deuda)</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.playerScroll}>
               {players.map((sp) => {
                 const p = playerMap[sp.playerId];
                 if (!p) return null;
-                const selected = toId === sp.playerId;
+                const selected = fromId === sp.playerId;
                 return (
                   <TouchableOpacity
                     key={sp.playerId}
-                    style={[styles.playerChip, selected && styles.playerChipToSelected]}
-                    onPress={() => setToId(sp.playerId)}
+                    style={[styles.playerChip, selected && styles.playerChipFromSelected]}
+                    onPress={() => setFromId(sp.playerId)}
                   >
                     <Text style={[styles.playerChipText, selected && styles.playerChipTextSelected]}>
                       {p.alias || p.name}

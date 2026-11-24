@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Session, SessionPlayer, Transaction } from '../types';
+import { Session, Transaction, BANCA_ID } from '../types';
 import { applyTransaction, reverseTransaction } from '../utils/balance';
 
 const SESSION_KEY = '@timba:session';
@@ -22,6 +22,8 @@ interface SessionState {
     note?: string
   ) => Promise<void>;
   undoLastTransaction: () => Promise<void>;
+  buyFromBanca: (playerId: string, amount: number) => Promise<void>;
+  returnToBanca: (playerId: string, amount: number) => Promise<void>;
   addPlayerToSession: (playerId: string) => Promise<void>;
   removePlayerFromSession: (playerId: string) => Promise<void>;
 }
@@ -56,7 +58,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session: Session = {
       id: generateId(),
       startedAt: Date.now(),
-      players: playerIds.map((playerId) => ({ playerId, balance: 0 })),
+      players: [
+        { playerId: BANCA_ID, balance: 0 },
+        ...playerIds.map((playerId) => ({ playerId, balance: 0 })),
+      ],
       transactions: [],
       isActive: true,
     };
@@ -110,6 +115,40 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       transactions: session.transactions.slice(0, -1),
     };
 
+    await persist(newSession);
+    set({ session: newSession });
+  },
+
+  buyFromBanca: async (playerId: string, amount: number) => {
+    // Comprar a banca = jugador se endeuda (balance baja), banca recibe (balance sube)
+    const { session } = get();
+    if (!session) return;
+    const tx: Transaction = {
+      id: generateId(),
+      timestamp: Date.now(),
+      fromPlayerId: playerId,
+      toPlayerId: BANCA_ID,
+      amount,
+      note: 'Compra a banca',
+    };
+    const newSession = { ...session, players: applyTransaction(session.players, tx), transactions: [...session.transactions, tx] };
+    await persist(newSession);
+    set({ session: newSession });
+  },
+
+  returnToBanca: async (playerId: string, amount: number) => {
+    // Devolver a banca = jugador cobra (balance sube), banca paga (balance baja)
+    const { session } = get();
+    if (!session) return;
+    const tx: Transaction = {
+      id: generateId(),
+      timestamp: Date.now(),
+      fromPlayerId: BANCA_ID,
+      toPlayerId: playerId,
+      amount,
+      note: 'Devuelve a banca',
+    };
+    const newSession = { ...session, players: applyTransaction(session.players, tx), transactions: [...session.transactions, tx] };
     await persist(newSession);
     set({ session: newSession });
   },

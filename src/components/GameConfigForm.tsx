@@ -45,7 +45,7 @@ export function GameConfigForm({
 
       {/* Multiplier */}
       <View style={styles.row}>
-        <Text style={styles.label}>Multiplicador</Text>
+        <Text style={styles.label}>Valor de ficha</Text>
         <TextInput
           style={styles.input}
           value={multiplierStr}
@@ -66,7 +66,7 @@ export function GameConfigForm({
       <Text style={styles.sectionTitle}>Fichas por denominación</Text>
       {config.denominations.map((d, i) => (
         <View key={d.value} style={styles.row}>
-          <Text style={styles.label}>${d.value} chips</Text>
+          <Text style={styles.label}>${d.value} ficha</Text>
           <View style={styles.counter}>
             <TouchableOpacity
               style={styles.counterBtn}

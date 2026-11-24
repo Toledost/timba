@@ -1,15 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Alert,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSessionStore, usePlayersStore, useConfigStore } from '../src/store';
-import { Transaction } from '../src/types';
+import { Transaction, BANCA_ID } from '../src/types';
 import { formatCurrency, formatGames, formatDateTime } from '../src/utils/currency';
 import { Colors, Spacing, FontSize } from '../src/theme';
 
@@ -19,40 +19,27 @@ export default function HistoryScreen() {
   const { gameValue } = useConfigStore();
 
   const playerMap = Object.fromEntries(players.map((p) => [p.id, p]));
+  const [confirmUndo, setConfirmUndo] = useState(false);
 
   const transactions = session ? [...session.transactions].reverse() : [];
 
+  const getName = (id: string) =>
+    id === BANCA_ID ? 'Banca' : playerMap[id]?.alias || playerMap[id]?.name || id;
+
   const handleUndo = () => {
     if (!session || session.transactions.length === 0) return;
-    const last = session.transactions[session.transactions.length - 1];
-    const from = playerMap[last.fromPlayerId]?.name ?? last.fromPlayerId;
-    const to = playerMap[last.toPlayerId]?.name ?? last.toPlayerId;
-    Alert.alert(
-      'Deshacer última transacción',
-      `¿Deshacer: ${from} → ${to} (${formatCurrency(last.amount)})?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Deshacer', style: 'destructive', onPress: () => undoLastTransaction() },
-      ]
-    );
+    setConfirmUndo(true);
   };
 
   const renderTx = ({ item, index }: { item: Transaction; index: number }) => {
-    const from = playerMap[item.fromPlayerId];
-    const to = playerMap[item.toPlayerId];
-    const isLast = index === 0; // reversed list, so index 0 is the last chronological
-
+    const isLast = index === 0;
     return (
       <View style={[styles.txRow, isLast && styles.txRowLast]}>
         <View style={styles.txLeft}>
           <View style={styles.txPlayers}>
-            <Text style={styles.txFrom}>
-              {from?.alias || from?.name || item.fromPlayerId}
-            </Text>
+            <Text style={styles.txFrom}>{getName(item.fromPlayerId)}</Text>
             <Text style={styles.txArrow}>→</Text>
-            <Text style={styles.txTo}>
-              {to?.alias || to?.name || item.toPlayerId}
-            </Text>
+            <Text style={styles.txTo}>{getName(item.toPlayerId)}</Text>
           </View>
           <Text style={styles.txTime}>{formatDateTime(item.timestamp)}</Text>
           {item.note ? (
@@ -117,6 +104,33 @@ export default function HistoryScreen() {
         }
         contentContainerStyle={{ paddingBottom: 32 }}
       />
+
+      {session && session.transactions.length > 0 && (
+        <Modal visible={confirmUndo} transparent animationType="fade" onRequestClose={() => setConfirmUndo(false)}>
+          <View style={styles.overlay}>
+            <View style={styles.confirmSheet}>
+              <Text style={styles.confirmTitle}>¿Deshacer última transacción?</Text>
+              {(() => {
+                const last = session.transactions[session.transactions.length - 1];
+                return (
+                  <Text style={styles.confirmDetail}>
+                    {getName(last.fromPlayerId)} → {getName(last.toPlayerId)} · {formatCurrency(last.amount)}
+                  </Text>
+                );
+              })()}
+              <TouchableOpacity
+                style={styles.undoConfirmBtn}
+                onPress={() => { setConfirmUndo(false); undoLastTransaction(); }}
+              >
+                <Text style={styles.undoConfirmText}>↩ Deshacer</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmUndo(false)}>
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -253,5 +267,53 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     textAlign: 'center',
     marginTop: Spacing.sm,
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.md,
+  },
+  confirmSheet: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: Spacing.md,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  confirmTitle: {
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    marginBottom: Spacing.sm,
+  },
+  confirmDetail: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    marginBottom: Spacing.md,
+  },
+  undoConfirmBtn: {
+    backgroundColor: '#3a1a1a',
+    borderWidth: 1,
+    borderColor: Colors.red,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  undoConfirmText: {
+    color: Colors.red,
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
+  cancelBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cancelBtnText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
   },
 });
