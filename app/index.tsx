@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -15,11 +16,12 @@ import { PlayerCard } from '../src/components/PlayerCard';
 import { BalanceIndicator } from '../src/components/BalanceIndicator';
 import { TransactionModal } from '../src/components/TransactionModal';
 import { getTotalBalance } from '../src/utils/balance';
-import { formatCurrency, formatDateTime } from '../src/utils/currency';
+import { formatDateTime } from '../src/utils/currency';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { Player, BANCA_ID } from '../src/types';
 
 export default function SessionScreen() {
+  const router = useRouter();
   const { session, startSession, endSession, addTransaction, buyFromBanca, returnToBanca } = useSessionStore();
   const { players } = usePlayersStore();
   const { gameValue } = useConfigStore();
@@ -29,8 +31,6 @@ export default function SessionScreen() {
   const [txInitialTo, setTxInitialTo] = useState<string | undefined>();
   const [selectPlayersVisible, setSelectPlayersVisible] = useState(false);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
-  const [confirmEndVisible, setConfirmEndVisible] = useState(false);
-
   // Build a map from playerId → Player for fast lookup
   const playerMap = useMemo(
     () => Object.fromEntries(players.map((p) => [p.id, p])) as Record<string, Player>,
@@ -40,20 +40,6 @@ export default function SessionScreen() {
   const totalBalance = session ? getTotalBalance(session.players) : 0;
 
   // ---- Handlers ----
-
-  // +1j: este jugador VENDE 1 juego a otro
-  // from = comprador (pierde plata), to = vendedor (gana plata)
-  const handleSellToPlayer = (sellerPlayerId: string) => {
-    if (!session) return;
-    const others = sessionPlayers.filter((p) => p.playerId !== sellerPlayerId);
-    if (others.length === 1) {
-      addTransaction(others[0].playerId, sellerPlayerId, gameValue, 'Venta de juego');
-    } else {
-      setTxInitialFrom(undefined);
-      setTxInitialTo(sellerPlayerId);
-      setTxModalVisible(true);
-    }
-  };
 
   const handleCardPress = (playerId: string) => {
     setTxInitialFrom(playerId);
@@ -70,15 +56,21 @@ export default function SessionScreen() {
     setTxModalVisible(false);
   };
 
-  const handleStartSession = () => {
+  const handleStartSession = async () => {
     if (selectedPlayerIds.size < 2) {
       Alert.alert('Faltan jugadores', 'Selecciona al menos 2 jugadores');
       return;
     }
-    startSession(Array.from(selectedPlayerIds));
+    const ids = Array.from(selectedPlayerIds);
+    await startSession(ids);
+    for (const id of ids) {
+      await buyFromBanca(id, gameValue);
+    }
     setSelectPlayersVisible(false);
     setSelectedPlayerIds(new Set());
   };
+
+  const [confirmEndVisible, setConfirmEndVisible] = useState(false);
 
   const handleEndSession = () => setConfirmEndVisible(true);
 
@@ -198,7 +190,6 @@ export default function SessionScreen() {
               player={player}
               sessionPlayer={sp}
               gameValue={gameValue}
-              onSellToPlayer={handleSellToPlayer}
               onPress={handleCardPress}
               onBuyFromBanca={buyFromBanca}
               onReturnToBanca={returnToBanca}
@@ -234,75 +225,16 @@ export default function SessionScreen() {
         onConfirm={handleTxConfirm}
       />
 
-      <Modal visible={confirmEndVisible} transparent animationType="slide" onRequestClose={() => setConfirmEndVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { borderRadius: 14, maxHeight: '90%' }]}>
-            <Text style={styles.modalTitle}>Resumen de partida</Text>
-
-            <ScrollView style={{ marginBottom: 16 }} showsVerticalScrollIndicator={false}>
-              {/* Balance por jugador */}
-              <Text style={styles.summarySection}>Saldos finales</Text>
-              {session && session.players.map((sp) => {
-                const p = playerMap[sp.playerId];
-                if (!p) return null;
-                const color = sp.balance > 0 ? Colors.green : sp.balance < 0 ? Colors.red : Colors.textSecondary;
-                const games = gameValue > 0 ? (sp.balance / gameValue) : 0;
-                return (
-                  <View key={sp.playerId} style={styles.summaryRow}>
-                    <Text style={styles.summaryName}>{p.alias || p.name}</Text>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={[styles.summaryBalance, { color }]}>{formatCurrency(sp.balance)}</Text>
-                      <Text style={styles.summaryGames}>{games > 0 ? '+' : ''}{games.toFixed(2)}j</Text>
-                    </View>
-                  </View>
-                );
-              })}
-
-              {/* Deudas: quién le debe a quién */}
-              {(() => {
-                if (!session) return null;
-                const debtors = session.players.filter(p => p.balance < 0).map(p => ({ ...p, bal: p.balance }));
-                const creditors = session.players.filter(p => p.balance > 0).map(p => ({ ...p, bal: p.balance }));
-                if (debtors.length === 0 || creditors.length === 0) return null;
-
-                const settlements: { from: string; to: string; amount: number }[] = [];
-                const d = debtors.map(p => ({ id: p.playerId, bal: -p.balance }));
-                const c = creditors.map(p => ({ id: p.playerId, bal: p.balance }));
-                let i = 0, j = 0;
-                while (i < d.length && j < c.length) {
-                  const amount = Math.min(d[i].bal, c[j].bal);
-                  settlements.push({ from: d[i].id, to: c[j].id, amount });
-                  d[i].bal -= amount;
-                  c[j].bal -= amount;
-                  if (d[i].bal < 0.01) i++;
-                  if (c[j].bal < 0.01) j++;
-                }
-
-                return (
-                  <>
-                    <Text style={[styles.summarySection, { marginTop: 16 }]}>Pagos a realizar</Text>
-                    {settlements.map((s, idx) => {
-                      const from = playerMap[s.from];
-                      const to = playerMap[s.to];
-                      return (
-                        <View key={idx} style={styles.settlementRow}>
-                          <Text style={styles.settlementFrom}>{from?.alias || from?.name || s.from}</Text>
-                          <Text style={styles.settlementArrow}> le paga a </Text>
-                          <Text style={styles.settlementTo}>{to?.alias || to?.name || s.to}</Text>
-                          <Text style={styles.settlementAmount}> {formatCurrency(s.amount)}</Text>
-                        </View>
-                      );
-                    })}
-                  </>
-                );
-              })()}
-            </ScrollView>
-
+      <Modal visible={confirmEndVisible} transparent animationType="fade" onRequestClose={() => setConfirmEndVisible(false)}>
+        <View style={[styles.modalOverlay, { justifyContent: 'center' }]}>
+          <View style={styles.confirmSheet}>
+            <Text style={styles.confirmTitle}>¿Terminás la partida?</Text>
+            <Text style={styles.confirmSubtitle}>Vas a poder contar las fichas antes de ver los pagos.</Text>
             <TouchableOpacity
-              style={[styles.startBtn, { backgroundColor: Colors.red, marginBottom: 8 }]}
-              onPress={() => { setConfirmEndVisible(false); endSession(); }}
+              style={styles.confirmEndBtn}
+              onPress={() => { setConfirmEndVisible(false); endSession(); router.push('/history?openChips=1'); }}
             >
-              <Text style={styles.startBtnText}>Terminar partida</Text>
+              <Text style={styles.confirmEndBtnText}>Terminar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmEndVisible(false)}>
               <Text style={styles.cancelBtnText}>Cancelar</Text>
@@ -310,6 +242,7 @@ export default function SessionScreen() {
           </View>
         </View>
       </Modal>
+
     </SafeAreaView>
   );
 }
@@ -417,6 +350,37 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '600',
   },
+  confirmSheet: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    margin: Spacing.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  confirmTitle: {
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  confirmSubtitle: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    marginBottom: Spacing.md,
+  },
+  confirmEndBtn: {
+    backgroundColor: Colors.red,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  confirmEndBtnText: {
+    color: Colors.white,
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -464,64 +428,5 @@ const styles = StyleSheet.create({
     color: Colors.blue,
     fontSize: FontSize.lg,
     fontWeight: '700',
-  },
-  summarySection: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: Spacing.sm,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.surfaceRaised,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: Spacing.xs,
-  },
-  summaryName: {
-    color: Colors.text,
-    fontSize: FontSize.md,
-    fontWeight: '600',
-  },
-  summaryBalance: {
-    fontSize: FontSize.md,
-    fontWeight: '800',
-  },
-  summaryGames: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.xs,
-    marginTop: 2,
-  },
-  settlementRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    backgroundColor: Colors.surfaceRaised,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: Spacing.xs,
-  },
-  settlementFrom: {
-    color: Colors.red,
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-  },
-  settlementArrow: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.sm,
-  },
-  settlementTo: {
-    color: Colors.green,
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-  },
-  settlementAmount: {
-    color: Colors.text,
-    fontSize: FontSize.sm,
-    fontWeight: '800',
   },
 });

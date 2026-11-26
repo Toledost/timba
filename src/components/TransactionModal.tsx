@@ -38,14 +38,14 @@ export function TransactionModal({
 }: TransactionModalProps) {
   const [fromId, setFromId] = useState<string>(initialFromId ?? '');
   const [toId, setToId] = useState<string>(initialToId ?? '');
-  const [amountStr, setAmountStr] = useState<string>('');
+  const [amountStr, setAmountStr] = useState<string>('1');
   const [note, setNote] = useState<string>('');
   const [useGames, setUseGames] = useState(true);
 
   const reset = useCallback(() => {
     setFromId(initialFromId ?? '');
     setToId(initialToId ?? '');
-    setAmountStr('');
+    setAmountStr('1');
     setNote('');
     setUseGames(true);
   }, [initialFromId, initialToId]);
@@ -73,7 +73,7 @@ export function TransactionModal({
     if (useGames) {
       const games = parseFloat(amountStr);
       if (isNaN(games) || games <= 0) {
-        Alert.alert('Error', 'Ingresa un número de games válido');
+        Alert.alert('Error', 'Ingresa un número de juegos válido');
         return;
       }
       amount = games * gameValue;
@@ -88,8 +88,6 @@ export function TransactionModal({
     onConfirm(fromId, toId, amount, note.trim() || undefined);
     reset();
   };
-
-  const presets = [0.5, 1, 1.5, 2];
 
   return (
     <Modal
@@ -167,7 +165,7 @@ export function TransactionModal({
                 onPress={() => { setUseGames(true); setAmountStr(''); }}
               >
                 <Text style={[styles.toggleBtnText, useGames && styles.toggleBtnTextActive]}>
-                  Games ({formatCurrency(gameValue)})
+                  Juegos ({formatCurrency(gameValue)})
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -180,31 +178,15 @@ export function TransactionModal({
               </TouchableOpacity>
             </View>
 
-            {/* Quick presets for games */}
-            {useGames && (
-              <View style={styles.presets}>
-                {presets.map((g) => (
-                  <TouchableOpacity
-                    key={g}
-                    style={styles.presetBtn}
-                    onPress={() => setAmountStr(String(g))}
-                  >
-                    <Text style={styles.presetBtnText}>{g}g</Text>
-                    <Text style={styles.presetBtnSub}>{formatCurrency(g * gameValue)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
             {/* Amount input */}
             <View style={styles.inputRow}>
-              <Text style={styles.inputPrefix}>{useGames ? 'Games' : '$'}</Text>
+              <Text style={styles.inputPrefix}>{useGames ? 'Juegos' : '$'}</Text>
               <TextInput
                 style={styles.input}
                 value={amountStr}
                 onChangeText={setAmountStr}
                 keyboardType="decimal-pad"
-                placeholder={useGames ? '1' : '4550'}
+                placeholder={useGames ? '1' : String(gameValue)}
                 placeholderTextColor={Colors.textSecondary}
               />
             </View>
@@ -335,30 +317,6 @@ const styles = StyleSheet.create({
   },
   toggleBtnTextActive: {
     color: Colors.white,
-  },
-  presets: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-  },
-  presetBtn: {
-    flex: 1,
-    backgroundColor: Colors.surfaceRaised,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  presetBtnText: {
-    color: Colors.text,
-    fontSize: FontSize.md,
-    fontWeight: '700',
-  },
-  presetBtnSub: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.xs,
-    marginTop: 2,
   },
   inputRow: {
     flexDirection: 'row',

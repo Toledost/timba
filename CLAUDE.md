@@ -79,8 +79,22 @@ npx expo start --ios
 | yellow | #d29922 | Warnings, latest tx badge |
 | blue | #58a6ff | Actions, selections |
 
+## Build Scripts
+| Script | Cuándo usar |
+|--------|-------------|
+| `npm run build` | Cambios de código JS/TS (uso diario) |
+| `npm run build:clean` | Solo cuando cambiás dependencias o `app.json` |
+
+**NUNCA tocar la configuración del build sin probar primero.** El `--parallel` en Gradle hace que Metro y Gradle corran al mismo tiempo, lo que causa `EBUSY` si Metro watchea la carpeta `android/`. Por eso existe `metro.config.js` con `blockList` para excluir `android/` del watcher de Metro. No eliminar ni modificar ese archivo.
+
+**Optimizaciones ya aplicadas** (no volver a tocar):
+- `~/.gradle/gradle.properties`: `org.gradle.caching=true`, `configureondemand=true`, `jvmargs=-Xmx4g`
+- `metro.config.js`: excluye `android/` del watcher
+- `gradlew ... --build-cache` en ambos scripts
+
 ## Common Gotchas
 - **Expo Router entry**: `"main": "expo-router/entry"` in package.json is required.
 - **SafeAreaView**: Always import from `react-native-safe-area-context`, not `react-native`.
 - **Keyboard avoidance**: Use `KeyboardAvoidingView` with `behavior="padding"` on iOS and `"height"` on Android in modals.
 - **AsyncStorage is async**: All store mutation actions are `async`; always `await` them in effects or handlers that chain operations.
+- **Alert.alert no funciona en web**: Usar Modal propio para confirmaciones, no `Alert.alert`.

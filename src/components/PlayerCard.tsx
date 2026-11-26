@@ -8,7 +8,6 @@ interface PlayerCardProps {
   player: Player;
   sessionPlayer: SessionPlayer;
   gameValue: number;
-  onSellToPlayer: (fromPlayerId: string) => void;  // +1j vende a otro jugador
   onPress: (playerId: string) => void;
   onBuyFromBanca: (playerId: string, amount: number) => void;  // -B
   onReturnToBanca: (playerId: string, amount: number) => void; // +B
@@ -18,7 +17,6 @@ export function PlayerCard({
   player,
   sessionPlayer,
   gameValue,
-  onSellToPlayer,
   onPress,
   onBuyFromBanca,
   onReturnToBanca,
@@ -75,22 +73,16 @@ export function PlayerCard({
 
         <View style={styles.buttons}>
           <TouchableOpacity
-            style={[styles.btn, styles.btnGreen]}
-            onPress={() => onSellToPlayer(sessionPlayer.playerId)}
-          >
-            <Text style={styles.btnText}>+1j</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             style={[styles.btn, styles.btnBancaRed]}
             onPress={() => openBanca('buy')}
           >
-            <Text style={styles.btnTextSmall}>-B</Text>
+            <Text style={styles.btnTextSmall}>Comprar</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.btn, styles.btnBancaGreen]}
             onPress={() => openBanca('return')}
           >
-            <Text style={styles.btnTextSmall}>+B</Text>
+            <Text style={styles.btnTextSmall}>Vender</Text>
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -99,7 +91,7 @@ export function PlayerCard({
         <View style={styles.overlay}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>
-              {bancaType === 'buy' ? '🔴 Compra juego (entra en deuda)' : '🟢 Devuelve juego (cobra a banca)'}
+              {bancaType === 'buy' ? '🔴 Compra juego a banca' : '🟢 Vende juego a banca'}
             </Text>
             <Text style={styles.sheetSubtitle}>{displayName}</Text>
 

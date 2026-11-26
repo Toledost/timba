@@ -11,6 +11,8 @@ function generateId(): string {
 
 interface SessionState {
   session: Session | null;
+  lastSessionPlayers: Session['players'] | null;
+  lastSessionTransactions: Session['transactions'] | null;
   isLoaded: boolean;
   loadSession: () => Promise<void>;
   startSession: (playerIds: string[]) => Promise<void>;
@@ -38,6 +40,8 @@ async function persist(session: Session | null) {
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   session: null,
+  lastSessionPlayers: null,
+  lastSessionTransactions: null,
   isLoaded: false,
 
   loadSession: async () => {
@@ -70,8 +74,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   endSession: async () => {
+    const { session } = get();
     await persist(null);
-    set({ session: null });
+    set({
+      session: null,
+      lastSessionPlayers: session?.players ?? null,
+      lastSessionTransactions: session?.transactions ?? null,
+    });
   },
 
   addTransaction: async (
