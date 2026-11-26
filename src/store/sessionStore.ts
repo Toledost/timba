@@ -24,6 +24,7 @@ interface SessionState {
     note?: string
   ) => Promise<void>;
   undoLastTransaction: () => Promise<void>;
+  removeTransaction: (txId: string) => Promise<void>;
   buyFromBanca: (playerId: string, amount: number) => Promise<void>;
   returnToBanca: (playerId: string, amount: number) => Promise<void>;
   addPlayerToSession: (playerId: string) => Promise<void>;
@@ -108,6 +109,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       transactions: [...session.transactions, tx],
     };
 
+    await persist(newSession);
+    set({ session: newSession });
+  },
+
+  removeTransaction: async (txId: string) => {
+    const { session } = get();
+    if (!session) return;
+    const remaining = session.transactions.filter((tx) => tx.id !== txId);
+    const resetPlayers = session.players.map((p) => ({ ...p, balance: 0 }));
+    const newPlayers = remaining.reduce(applyTransaction, resetPlayers);
+    const newSession: Session = { ...session, players: newPlayers, transactions: remaining };
     await persist(newSession);
     set({ session: newSession });
   },

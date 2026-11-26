@@ -7,24 +7,23 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
-  TextInput,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSessionStore, usePlayersStore, useConfigStore } from '../src/store';
-import { Transaction, BANCA_ID } from '../src/types';
+import { BANCA_ID } from '../src/types';
 import { formatCurrency, formatGames, formatDateTime } from '../src/utils/currency';
 import { Colors, Spacing, FontSize } from '../src/theme';
+import { ChipCountSection } from '../src/components/ChipCountSection';
 
 export default function HistoryScreen() {
-  const { session, lastSessionPlayers, lastSessionTransactions, undoLastTransaction } = useSessionStore();
+  const { session, lastSessionPlayers, lastSessionTransactions, removeTransaction } = useSessionStore();
   const { players } = usePlayersStore();
   const { gameValue, config } = useConfigStore();
 
   const { openChips } = useLocalSearchParams<{ openChips?: string }>();
 
   const playerMap = Object.fromEntries(players.map((p) => [p.id, p]));
-  const [confirmUndo, setConfirmUndo] = useState(false);
+  const [confirmTx, setConfirmTx] = useState<string | null>(null);
   const sessionEnded = !session && !!lastSessionPlayers;
   const [chipCountOpen, setChipCountOpen] = useState(false);
   const [historyOpenOverride, setHistoryOpenOverride] = useState<boolean | null>(null);
@@ -37,34 +36,12 @@ export default function HistoryScreen() {
       setHistoryOpenOverride(false);
     }
   }, [openChips]);
-  // Record<playerId, Record<denominationIndex, quantity string>>
-  const [chipCounts, setChipCounts] = useState<Record<string, Record<number, string>>>({});
-  const [copied, setCopied] = useState(false);
-
-  const setDenomCount = (playerId: string, denomIdx: number, value: string) => {
-    const sanitized = value.replace(/[^0-9]/g, '');
-    setChipCounts((prev) => ({
-      ...prev,
-      [playerId]: { ...(prev[playerId] ?? {}), [denomIdx]: sanitized },
-    }));
-  };
-
-  const getPlayerTotal = (playerId: string): number => {
-    if (!config) return 0;
-    return config.denominations.reduce((sum, denom, idx) => {
-      const qty = parseInt(chipCounts[playerId]?.[idx] ?? '0', 10) || 0;
-      return sum + qty * denom.value * config.multiplier;
-    }, 0);
-  };
-
   const renderChipCountFooter = () => {
     const sessionPlayers = session?.players ?? lastSessionPlayers;
+    const allPlayers = session?.players ?? lastSessionPlayers ?? [];
     if (!sessionPlayers || !config) return null;
-    const humanPlayers = sessionPlayers.filter((sp) => sp.playerId !== BANCA_ID);
-
     return (
       <View style={styles.chipSection}>
-        {/* Collapsible header */}
         <TouchableOpacity
           style={styles.chipSectionHeader}
           onPress={() => setChipCountOpen((v) => !v)}
@@ -73,165 +50,13 @@ export default function HistoryScreen() {
           <Text style={styles.chipSectionTitle}>🎲 Conteo de fichas</Text>
           <Text style={styles.chipSectionChevron}>{chipCountOpen ? '▲' : '▼'}</Text>
         </TouchableOpacity>
-
         {chipCountOpen && (
-          <View style={styles.chipSectionBody}>
-            {humanPlayers.map((sp) => {
-              const name =
-                sp.playerId === BANCA_ID
-                  ? 'Banca'
-                  : playerMap[sp.playerId]?.alias || playerMap[sp.playerId]?.name || sp.playerId;
-              const playerTotal = getPlayerTotal(sp.playerId);
-
-              return (
-                <View key={sp.playerId} style={styles.chipPlayer}>
-                  <Text style={styles.chipPlayerName}>{name}</Text>
-                  {config.denominations.map((denom, idx) => {
-                    const qty = chipCounts[sp.playerId]?.[idx] ?? '';
-                    const subtotal = (parseInt(qty || '0', 10) || 0) * denom.value;
-                    return (
-                      <View key={idx} style={styles.chipDenomRow}>
-                        <Text style={styles.chipDenomLabel}>{formatCurrency(denom.value)}</Text>
-                        <TextInput
-                          style={styles.chipInput}
-                          value={qty}
-                          onChangeText={(v) => setDenomCount(sp.playerId, idx, v)}
-                          keyboardType="number-pad"
-                          placeholder="0"
-                          placeholderTextColor={Colors.textSecondary}
-                          maxLength={4}
-                        />
-                        <Text style={styles.chipDenomSubtotal}>
-                          {subtotal > 0 ? formatCurrency(subtotal) : '—'}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                  <View style={styles.chipPlayerTotalRow}>
-                    <Text style={styles.chipPlayerTotalLabel}>Total</Text>
-                    <Text
-                      style={[
-                        styles.chipPlayerTotal,
-                        playerTotal > 0
-                          ? styles.chipTotalPositive
-                          : playerTotal < 0
-                          ? styles.chipTotalNegative
-                          : styles.chipTotalZero,
-                      ]}
-                    >
-                      {formatCurrency(playerTotal)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-
-            {/* Saldo banca = lo que todos compraron en total */}
-            {(() => {
-              const allPlayers = session?.players ?? lastSessionPlayers ?? [];
-              const bancaBal = allPlayers.find((p) => p.playerId === BANCA_ID)?.balance ?? 0;
-              if (bancaBal === 0) return null;
-              return (
-                <View style={styles.bancaRow}>
-                  <Text style={styles.bancaLabel}>Saldo banca (referencia)</Text>
-                  <Text style={styles.bancaValue}>{formatCurrency(bancaBal)}</Text>
-                </View>
-              );
-            })()}
-
-            {/* Saldos netos + pagos — solo si hay fichas cargadas */}
-            {(() => {
-              const anyFilled = humanPlayers.some((sp) => getPlayerTotal(sp.playerId) !== 0);
-              if (!anyFilled) return null;
-
-              const allPlayers = session?.players ?? lastSessionPlayers ?? [];
-
-              // neto = fichas_reales + saldo_sesion
-              // saldo_sesion es negativo para quien compró a banca y no recuperó
-              // ej: compró 1j (-4550) y tiene 2500 en fichas → neto = 2500 + (-4550) = -2050...
-              // PERO si vendió 1j a otro: saldo_sesion = -4550 + 4550 = 0 → neto = 2500
-              // La fórmula correcta: neto = fichas - inversión_neta
-              // inversión_neta = -(saldo_sesion) cuando saldo < 0 (lo que debe a banca)
-              // O más simple: neto = fichas + saldo_sesion (saldo ya incluye todo)
-              const nets = humanPlayers.map((sp) => {
-                const sessionBal = allPlayers.find((p) => p.playerId === sp.playerId)?.balance ?? 0;
-                const chips = getPlayerTotal(sp.playerId);
-                return { id: sp.playerId, net: chips + sessionBal };
-              });
-
-              const debtors = nets.filter((t) => t.net < 0).map((t) => ({ id: t.id, bal: -t.net }));
-              const creditors = nets.filter((t) => t.net > 0).map((t) => ({ id: t.id, bal: t.net }));
-
-              const settlements: { from: string; to: string; amount: number }[] = [];
-              const d = debtors.map((t) => ({ ...t }));
-              const c = creditors.map((t) => ({ ...t }));
-              let i = 0, j = 0;
-              while (i < d.length && j < c.length) {
-                const amount = Math.min(d[i].bal, c[j].bal);
-                settlements.push({ from: d[i].id, to: c[j].id, amount });
-                d[i].bal -= amount;
-                c[j].bal -= amount;
-                if (d[i].bal < 0.01) i++;
-                if (c[j].bal < 0.01) j++;
-              }
-
-              return (
-                <>
-                  <View style={styles.settlementsSection}>
-                    <Text style={styles.settlementsTitle}>SALDOS NETOS</Text>
-                    {nets.map((t) => {
-                      const name = playerMap[t.id]?.alias || playerMap[t.id]?.name || t.id;
-                      const color = t.net > 0 ? Colors.green : t.net < 0 ? Colors.red : Colors.textSecondary;
-                      return (
-                        <View key={t.id} style={styles.verifyRow}>
-                          <Text style={styles.verifyName}>{name}</Text>
-                          <Text style={[styles.verifyChips, { color }]}>
-                            {t.net > 0 ? '+' : ''}{formatCurrency(t.net)}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-
-                  {settlements.length > 0 && (
-                    <View style={[styles.settlementsSection, { borderTopWidth: 0 }]}>
-                      <View style={styles.settlementsTitleRow}>
-                        <Text style={styles.settlementsTitle}>PAGOS A REALIZAR</Text>
-                        <TouchableOpacity
-                          onPress={async () => {
-                            const lines = settlements.map((s) => {
-                              const f = playerMap[s.from]?.alias || playerMap[s.from]?.name || s.from;
-                              const t = playerMap[s.to]?.alias || playerMap[s.to]?.name || s.to;
-                              return `• ${f} le paga a ${t}: ${formatCurrency(s.amount)}`;
-                            });
-                            const msg = `🃏 *Pagos de la partida*\n\n${lines.join('\n')}`;
-                            await Clipboard.setStringAsync(msg);
-                            setCopied(true);
-                            setTimeout(() => setCopied(false), 2000);
-                          }}
-                          style={styles.copyBtn}
-                        >
-                          <Text style={styles.copyBtnText}>{copied ? '✓ Copiado' : '📋 Copiar'}</Text>
-                        </TouchableOpacity>
-                      </View>
-                      {settlements.map((s, idx) => {
-                        const fromName = playerMap[s.from]?.alias || playerMap[s.from]?.name || s.from;
-                        const toName = playerMap[s.to]?.alias || playerMap[s.to]?.name || s.to;
-                        return (
-                          <View key={idx} style={styles.settlementRow}>
-                            <Text style={styles.settlementFrom}>{fromName}</Text>
-                            <Text style={styles.settlementArrow}> le paga a </Text>
-                            <Text style={styles.settlementTo}>{toName}</Text>
-                            <Text style={styles.settlementAmount}> {formatCurrency(s.amount)}</Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </>
-              );
-            })()}
-          </View>
+          <ChipCountSection
+            sessionPlayers={sessionPlayers}
+            allPlayers={allPlayers}
+            playerMap={playerMap}
+            config={config}
+          />
         )}
       </View>
     );
@@ -241,39 +66,6 @@ export default function HistoryScreen() {
 
   const getName = (id: string) =>
     id === BANCA_ID ? 'Banca' : playerMap[id]?.alias || playerMap[id]?.name || id;
-
-  const handleUndo = () => {
-    if (!session || session.transactions.length === 0) return;
-    setConfirmUndo(true);
-  };
-
-  const renderTx = ({ item, index }: { item: Transaction; index: number }) => {
-    const isLast = index === 0;
-    return (
-      <View style={[styles.txRow, isLast && styles.txRowLast]}>
-        <View style={styles.txLeft}>
-          <View style={styles.txPlayers}>
-            <Text style={styles.txFrom}>{getName(item.fromPlayerId)}</Text>
-            <Text style={styles.txArrow}>→</Text>
-            <Text style={styles.txTo}>{getName(item.toPlayerId)}</Text>
-          </View>
-          <Text style={styles.txTime}>{formatDateTime(item.timestamp)}</Text>
-          {item.note ? (
-            <Text style={styles.txNote}>{item.note}</Text>
-          ) : null}
-        </View>
-        <View style={styles.txRight}>
-          <Text style={styles.txAmount}>{formatCurrency(item.amount)}</Text>
-          <Text style={styles.txGames}>{formatGames(item.amount, gameValue)}</Text>
-        </View>
-        {isLast && (
-          <View style={styles.lastBadge}>
-            <Text style={styles.lastBadgeText}>último</Text>
-          </View>
-        )}
-      </View>
-    );
-  };
 
   const renderHistorySection = () => (
     <View style={styles.chipSection}>
@@ -304,14 +96,14 @@ export default function HistoryScreen() {
                 <View style={styles.txRight}>
                   <Text style={styles.txAmount}>{formatCurrency(item.amount)}</Text>
                   <Text style={styles.txGames}>{formatGames(item.amount, gameValue)}</Text>
+                  {session && (
+                    <TouchableOpacity onPress={() => setConfirmTx(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={styles.txUndoBtn}>↩</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             ))
-          )}
-          {session && transactions.length > 0 && (
-            <TouchableOpacity style={styles.undoBtnInline} onPress={handleUndo}>
-              <Text style={styles.undoBtnText}>↩ Deshacer último</Text>
-            </TouchableOpacity>
           )}
         </View>
       )}
@@ -369,26 +161,27 @@ export default function HistoryScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
       />
 
-      {session && session.transactions.length > 0 && (
-        <Modal visible={confirmUndo} transparent animationType="fade" onRequestClose={() => setConfirmUndo(false)}>
+      {session && (
+        <Modal visible={!!confirmTx} transparent animationType="fade" onRequestClose={() => setConfirmTx(null)}>
           <View style={styles.overlay}>
             <View style={styles.confirmSheet}>
-              <Text style={styles.confirmTitle}>¿Deshacer última transacción?</Text>
+              <Text style={styles.confirmTitle}>¿Eliminar movimiento?</Text>
               {(() => {
-                const last = session.transactions[session.transactions.length - 1];
+                const tx = session.transactions.find((t) => t.id === confirmTx);
+                if (!tx) return null;
                 return (
                   <Text style={styles.confirmDetail}>
-                    {getName(last.fromPlayerId)} → {getName(last.toPlayerId)} · {formatCurrency(last.amount)}
+                    {getName(tx.fromPlayerId)} → {getName(tx.toPlayerId)} · {formatCurrency(tx.amount)}
                   </Text>
                 );
               })()}
               <TouchableOpacity
                 style={styles.undoConfirmBtn}
-                onPress={() => { setConfirmUndo(false); undoLastTransaction(); }}
+                onPress={() => { const id = confirmTx!; setConfirmTx(null); removeTransaction(id); }}
               >
-                <Text style={styles.undoConfirmText}>↩ Deshacer</Text>
+                <Text style={styles.undoConfirmText}>↩ Eliminar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmUndo(false)}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmTx(null)}>
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
             </View>
@@ -421,6 +214,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: FontSize.xs,
     marginTop: 2,
+  },
+  txUndoBtn: {
+    color: Colors.red,
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    marginTop: 4,
   },
   undoBtnInline: {
     backgroundColor: '#3a1a1a',

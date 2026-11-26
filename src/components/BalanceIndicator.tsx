@@ -8,7 +8,7 @@ interface BalanceIndicatorProps {
   playerCount: number;
 }
 
-export function BalanceIndicator({ totalBalance, playerCount }: BalanceIndicatorProps) {
+export function BalanceIndicator({ totalBalance }: BalanceIndicatorProps) {
   const isBalanced = Math.abs(totalBalance) < 0.001;
   const color = isBalanced ? Colors.green : Colors.red;
 
@@ -24,9 +24,6 @@ export function BalanceIndicator({ totalBalance, playerCount }: BalanceIndicator
         <Text style={styles.warning}>
           Desbalanceado — revisa las transacciones
         </Text>
-      )}
-      {isBalanced && playerCount > 0 && (
-        <Text style={styles.ok}>Zero-sum OK</Text>
       )}
     </View>
   );

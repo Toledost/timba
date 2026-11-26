@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import {
   View,
@@ -13,9 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSessionStore, usePlayersStore, useConfigStore } from '../src/store';
 import { PlayerCard } from '../src/components/PlayerCard';
-import { BalanceIndicator } from '../src/components/BalanceIndicator';
 import { TransactionModal } from '../src/components/TransactionModal';
-import { getTotalBalance } from '../src/utils/balance';
 import { formatDateTime } from '../src/utils/currency';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { Player, BANCA_ID } from '../src/types';
@@ -36,8 +34,6 @@ export default function SessionScreen() {
     () => Object.fromEntries(players.map((p) => [p.id, p])) as Record<string, Player>,
     [players]
   );
-
-  const totalBalance = session ? getTotalBalance(session.players) : 0;
 
   // ---- Handlers ----
 
@@ -71,6 +67,17 @@ export default function SessionScreen() {
   };
 
   const [confirmEndVisible, setConfirmEndVisible] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!session?.isActive) { setElapsed(0); return; }
+    setElapsed(Math.floor((Date.now() - session.startedAt) / 1000));
+    intervalRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - session.startedAt) / 1000));
+    }, 1000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [session?.id, session?.isActive]);
 
   const handleEndSession = () => setConfirmEndVisible(true);
 
@@ -165,17 +172,12 @@ export default function SessionScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <BalanceIndicator
-        totalBalance={totalBalance}
-        playerCount={sessionPlayers.length}
-      />
-
       <View style={styles.sessionInfo}>
         <Text style={styles.sessionInfoText}>
-          Inicio: {formatDateTime(session.startedAt)}
+          Inicio: {formatDateTime(session.startedAt)} · {String(Math.floor(elapsed / 3600)).padStart(2, '0')}:{String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}
         </Text>
         <Text style={styles.sessionInfoText}>
-          {sessionPlayers.length} jugadores · {session.transactions.length} txns
+          {sessionPlayers.length} jugadores · {session.transactions.length} movimientos
         </Text>
       </View>
 
@@ -315,7 +317,7 @@ const styles = StyleSheet.create({
   },
   sessionInfoText: {
     color: Colors.textSecondary,
-    fontSize: FontSize.xs,
+    fontSize: FontSize.sm,
   },
   footer: {
     flexDirection: 'row',
