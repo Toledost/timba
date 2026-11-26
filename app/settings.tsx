@@ -6,7 +6,7 @@ import { GameConfigForm } from '../src/components/GameConfigForm';
 import { Colors } from '../src/theme';
 
 export default function SettingsScreen() {
-  const { config, updateMultiplier, updateDenomination, resetConfig } = useConfigStore();
+  const { config, updateMultiplier, updateDenomination, updateDenominationValue, addDenomination, removeDenomination, resetConfig } = useConfigStore();
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -15,6 +15,9 @@ export default function SettingsScreen() {
           config={config}
           onUpdateMultiplier={updateMultiplier}
           onUpdateDenomination={updateDenomination}
+          onUpdateDenominationValue={updateDenominationValue}
+          onAddDenomination={addDenomination}
+          onRemoveDenomination={removeDenomination}
           onReset={resetConfig}
         />
       </ScrollView>

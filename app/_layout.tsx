@@ -2,18 +2,20 @@ import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Text } from 'react-native';
-import { useConfigStore, usePlayersStore, useSessionStore } from '../src/store';
+import { useConfigStore, usePlayersStore, useSessionStore, useHistoryStore } from '../src/store';
 import { Colors } from '../src/theme';
 
 export default function RootLayout() {
   const loadConfig = useConfigStore((s) => s.loadConfig);
   const loadPlayers = usePlayersStore((s) => s.loadPlayers);
   const loadSession = useSessionStore((s) => s.loadSession);
+  const loadHistory = useHistoryStore((s) => s.loadHistory);
 
   useEffect(() => {
     loadConfig();
     loadPlayers();
     loadSession();
+    loadHistory();
   }, []);
 
   return (

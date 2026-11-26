@@ -11,6 +11,7 @@ function generateId(): string {
 
 interface SessionState {
   session: Session | null;
+  lastSessionId: string | null;
   lastSessionPlayers: Session['players'] | null;
   lastSessionTransactions: Session['transactions'] | null;
   isLoaded: boolean;
@@ -25,6 +26,7 @@ interface SessionState {
   ) => Promise<void>;
   undoLastTransaction: () => Promise<void>;
   removeTransaction: (txId: string) => Promise<void>;
+  editTransaction: (txId: string, fromPlayerId: string, toPlayerId: string, amount: number, note?: string) => Promise<void>;
   buyFromBanca: (playerId: string, amount: number) => Promise<void>;
   returnToBanca: (playerId: string, amount: number) => Promise<void>;
   addPlayerToSession: (playerId: string) => Promise<void>;
@@ -41,6 +43,7 @@ async function persist(session: Session | null) {
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   session: null,
+  lastSessionId: null,
   lastSessionPlayers: null,
   lastSessionTransactions: null,
   isLoaded: false,
@@ -79,6 +82,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     await persist(null);
     set({
       session: null,
+      lastSessionId: session?.id ?? null,
       lastSessionPlayers: session?.players ?? null,
       lastSessionTransactions: session?.transactions ?? null,
     });
@@ -109,6 +113,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       transactions: [...session.transactions, tx],
     };
 
+    await persist(newSession);
+    set({ session: newSession });
+  },
+
+  editTransaction: async (txId, fromPlayerId, toPlayerId, amount, note) => {
+    const { session } = get();
+    if (!session) return;
+    const updated = session.transactions.map((tx) =>
+      tx.id === txId ? { ...tx, fromPlayerId, toPlayerId, amount, note } : tx
+    );
+    const resetPlayers = session.players.map((p) => ({ ...p, balance: 0 }));
+    const newPlayers = updated.reduce(applyTransaction, resetPlayers);
+    const newSession: Session = { ...session, players: newPlayers, transactions: updated };
     await persist(newSession);
     set({ session: newSession });
   },

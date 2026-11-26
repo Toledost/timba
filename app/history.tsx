@@ -9,21 +9,24 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSessionStore, usePlayersStore, useConfigStore } from '../src/store';
+import { useSessionStore, usePlayersStore, useConfigStore, useHistoryStore } from '../src/store';
 import { BANCA_ID } from '../src/types';
-import { formatCurrency, formatGames, formatDateTime } from '../src/utils/currency';
+import { formatCurrency, formatDateTime } from '../src/utils/currency';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { ChipCountSection } from '../src/components/ChipCountSection';
+import { TransactionModal } from '../src/components/TransactionModal';
 
 export default function HistoryScreen() {
-  const { session, lastSessionPlayers, lastSessionTransactions, removeTransaction } = useSessionStore();
+  const { session, lastSessionId, lastSessionPlayers, lastSessionTransactions, removeTransaction, editTransaction } = useSessionStore();
   const { players } = usePlayersStore();
-  const { gameValue, config } = useConfigStore();
+  const { config, gameValue } = useConfigStore();
+  const { archivedSessions, deleteSession } = useHistoryStore();
 
   const { openChips } = useLocalSearchParams<{ openChips?: string }>();
 
   const playerMap = Object.fromEntries(players.map((p) => [p.id, p]));
   const [confirmTx, setConfirmTx] = useState<string | null>(null);
+  const [editTxId, setEditTxId] = useState<string | null>(null);
   const sessionEnded = !session && !!lastSessionPlayers;
   const [chipCountOpen, setChipCountOpen] = useState(false);
   const [historyOpenOverride, setHistoryOpenOverride] = useState<boolean | null>(null);
@@ -52,6 +55,7 @@ export default function HistoryScreen() {
         </TouchableOpacity>
         {chipCountOpen && (
           <ChipCountSection
+            sessionId={session?.id ?? lastSessionId ?? ''}
             sessionPlayers={sessionPlayers}
             allPlayers={allPlayers}
             playerMap={playerMap}
@@ -66,6 +70,65 @@ export default function HistoryScreen() {
 
   const getName = (id: string) =>
     id === BANCA_ID ? 'Banca' : playerMap[id]?.alias || playerMap[id]?.name || id;
+
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState<string | null>(null);
+
+  const renderArchivedSessions = () => (
+    <View style={styles.chipSection}>
+      <TouchableOpacity
+        style={styles.chipSectionHeader}
+        onPress={() => setArchivedOpen((v) => !v)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.chipSectionTitle}>📚 Partidas anteriores ({archivedSessions.length})</Text>
+        <Text style={styles.chipSectionChevron}>{archivedOpen ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+      {archivedOpen && (
+        <View style={styles.chipSectionBody}>
+          {archivedSessions.length === 0 ? (
+            <Text style={{ color: Colors.textSecondary, padding: Spacing.md, fontSize: FontSize.sm }}>
+              Sin partidas anteriores
+            </Text>
+          ) : (
+            archivedSessions.map((as) => {
+              const durationMs = as.endedAt - as.startedAt;
+              const durationH = Math.floor(durationMs / 3600000);
+              const durationM = Math.floor((durationMs % 3600000) / 60000);
+              const durationStr = `${String(durationH).padStart(2, '0')}:${String(durationM).padStart(2, '0')}`;
+              return (
+                <View key={as.id} style={styles.archivedCard}>
+                  <View style={styles.archivedHeader}>
+                    <Text style={styles.archivedDate}>{formatDateTime(as.startedAt)}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Text style={styles.archivedMeta}>{durationStr} · {as.transactionCount} mov.</Text>
+                      <TouchableOpacity
+                        onPress={() => setDeleteSessionTarget(as.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.archivedDeleteBtn}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  {as.playerResults.map((pr) => (
+                    <View key={pr.playerId} style={styles.archivedPlayerRow}>
+                      <Text style={styles.archivedPlayerName}>{pr.playerName}</Text>
+                      <Text style={[
+                        styles.archivedPlayerResult,
+                        pr.netResult > 0 ? { color: Colors.green } : pr.netResult < 0 ? { color: Colors.red } : { color: Colors.textSecondary },
+                      ]}>
+                        {pr.netResult > 0 ? '+' : ''}{formatCurrency(pr.netResult)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })
+          )}
+        </View>
+      )}
+    </View>
+  );
 
   const renderHistorySection = () => (
     <View style={styles.chipSection}>
@@ -95,11 +158,15 @@ export default function HistoryScreen() {
                 </View>
                 <View style={styles.txRight}>
                   <Text style={styles.txAmount}>{formatCurrency(item.amount)}</Text>
-                  <Text style={styles.txGames}>{formatGames(item.amount, gameValue)}</Text>
                   {session && (
-                    <TouchableOpacity onPress={() => setConfirmTx(item.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Text style={styles.txUndoBtn}>↩</Text>
-                    </TouchableOpacity>
+                    <View style={styles.txActions}>
+                      <TouchableOpacity onPress={() => setEditTxId(item.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Text style={styles.txEditBtn}>✏️</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setConfirmTx(item.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Text style={styles.txUndoBtn}>↩</Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
               </View>
@@ -108,6 +175,31 @@ export default function HistoryScreen() {
         </View>
       )}
     </View>
+  );
+
+  const renderDeleteSessionModal = () => (
+    <Modal visible={!!deleteSessionTarget} transparent animationType="fade" onRequestClose={() => setDeleteSessionTarget(null)}>
+      <View style={styles.overlay}>
+        <View style={styles.confirmSheet}>
+          <Text style={styles.confirmTitle}>¿Eliminar partida?</Text>
+          <Text style={styles.confirmDetail}>
+            {(() => {
+              const as = archivedSessions.find((s) => s.id === deleteSessionTarget);
+              return as ? formatDateTime(as.startedAt) : '';
+            })()}
+          </Text>
+          <TouchableOpacity
+            style={styles.undoConfirmBtn}
+            onPress={() => { deleteSession(deleteSessionTarget!); setDeleteSessionTarget(null); }}
+          >
+            <Text style={styles.undoConfirmText}>Eliminar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => setDeleteSessionTarget(null)}>
+            <Text style={styles.cancelBtnText}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 
   if (!session) {
@@ -125,6 +217,7 @@ export default function HistoryScreen() {
                 <>
                   {renderHistorySection()}
                   {renderChipCountFooter()}
+                  {renderArchivedSessions()}
                 </>
               )}
               contentContainerStyle={{ paddingBottom: 32 }}
@@ -139,6 +232,7 @@ export default function HistoryScreen() {
             </Text>
           </View>
         )}
+        {renderDeleteSessionModal()}
       </SafeAreaView>
     );
   }
@@ -156,10 +250,33 @@ export default function HistoryScreen() {
           <>
             {renderHistorySection()}
             {renderChipCountFooter()}
+            {renderArchivedSessions()}
           </>
         )}
         contentContainerStyle={{ paddingBottom: 32 }}
       />
+
+      {session && (() => {
+        const editTx = session.transactions.find((t) => t.id === editTxId);
+        const sessionPlayers = session.players.filter(p => p.playerId !== BANCA_ID);
+        return (
+          <TransactionModal
+            visible={!!editTxId}
+            players={sessionPlayers}
+            playerMap={playerMap}
+            gameValue={gameValue}
+            initialFromId={editTx?.fromPlayerId}
+            initialToId={editTx?.toPlayerId}
+            onClose={() => setEditTxId(null)}
+            onConfirm={(fromId, toId, amount, note) => {
+              editTransaction(editTxId!, fromId, toId, amount, note);
+              setEditTxId(null);
+            }}
+          />
+        );
+      })()}
+
+      {renderDeleteSessionModal()}
 
       {session && (
         <Modal visible={!!confirmTx} transparent animationType="fade" onRequestClose={() => setConfirmTx(null)}>
@@ -215,11 +332,19 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     marginTop: 2,
   },
+  txActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+    justifyContent: 'flex-end',
+  },
+  txEditBtn: {
+    fontSize: FontSize.md,
+  },
   txUndoBtn: {
     color: Colors.red,
-    fontSize: FontSize.md,
+    fontSize: FontSize.lg,
     fontWeight: '700',
-    marginTop: 4,
   },
   undoBtnInline: {
     backgroundColor: '#3a1a1a',
@@ -385,6 +510,47 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     color: Colors.textSecondary,
     fontSize: FontSize.sm,
+  },
+
+  // Archived sessions
+  archivedCard: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    padding: Spacing.md,
+  },
+  archivedHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  archivedDate: {
+    color: Colors.text,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  archivedMeta: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+  },
+  archivedPlayerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  archivedDeleteBtn: {
+    color: Colors.red,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  archivedPlayerName: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+  },
+  archivedPlayerResult: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
   },
 
   // Chip count section

@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -12,6 +13,7 @@ import { formatCurrency } from '../utils/currency';
 import { Colors, Spacing, FontSize } from '../theme';
 
 interface Props {
+  sessionId: string;
   sessionPlayers: SessionPlayer[];
   allPlayers: SessionPlayer[];
   playerMap: Record<string, { name: string; alias?: string }>;
@@ -47,16 +49,34 @@ const DenomRow = React.memo(function DenomRow({
   );
 });
 
-export function ChipCountSection({ sessionPlayers, allPlayers, playerMap, config }: Props) {
+export function ChipCountSection({ sessionId, sessionPlayers, allPlayers, playerMap, config }: Props) {
+  const CHIP_KEY = `@timba:chips:${sessionId}`;
   const [chipCounts, setChipCounts] = useState<Record<string, Record<number, string>>>({});
   const [copied, setCopied] = useState(false);
+  const [paidSettlements, setPaidSettlements] = useState<Set<number>>(new Set());
+
+  const togglePaid = (idx: number) => {
+    setPaidSettlements((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    AsyncStorage.getItem(CHIP_KEY).then((raw) => {
+      if (raw) setChipCounts(JSON.parse(raw));
+    });
+  }, [CHIP_KEY]);
 
   const setDenomCount = useCallback((playerId: string, denomIdx: number, value: string) => {
-    setChipCounts((prev) => ({
-      ...prev,
-      [playerId]: { ...(prev[playerId] ?? {}), [denomIdx]: value },
-    }));
-  }, []);
+    setChipCounts((prev) => {
+      const next = { ...prev, [playerId]: { ...(prev[playerId] ?? {}), [denomIdx]: value } };
+      AsyncStorage.setItem(CHIP_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [CHIP_KEY]);
 
   const getPlayerTotal = (playerId: string): number =>
     config.denominations.reduce((sum, denom, idx) => {
@@ -188,14 +208,23 @@ export function ChipCountSection({ sessionPlayers, allPlayers, playerMap, config
                   <Text style={styles.copyBtnText}>{copied ? '✓ Copiado' : '📋 Copiar'}</Text>
                 </TouchableOpacity>
               </View>
-              {settlements.map((s, idx) => (
-                <View key={idx} style={styles.settlementRow}>
-                  <Text style={styles.settlementFrom}>{getName(s.from)}</Text>
-                  <Text style={styles.settlementArrow}> le paga a </Text>
-                  <Text style={styles.settlementTo}>{getName(s.to)}</Text>
-                  <Text style={styles.settlementAmount}> {formatCurrency(s.amount)}</Text>
-                </View>
-              ))}
+              {settlements.map((s, idx) => {
+                const paid = paidSettlements.has(idx);
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[styles.settlementRow, paid && styles.settlementRowPaid]}
+                    onPress={() => togglePaid(idx)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.settlementFrom, paid && styles.settlementTextPaid]}>{getName(s.from)}</Text>
+                    <Text style={[styles.settlementArrow, paid && styles.settlementTextPaid]}> le paga a </Text>
+                    <Text style={[styles.settlementTo, paid && styles.settlementTextPaid]}>{getName(s.to)}</Text>
+                    <Text style={[styles.settlementAmount, paid && styles.settlementTextPaid]}> {formatCurrency(s.amount)}</Text>
+                    <Text style={styles.settlementCheck}>{paid ? ' ✓' : ''}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </>
@@ -364,6 +393,21 @@ const styles = StyleSheet.create({
   settlementAmount: {
     color: Colors.text,
     fontSize: FontSize.sm,
+    fontWeight: '800',
+  },
+  settlementRowPaid: {
+    backgroundColor: '#0d2b15',
+    borderColor: Colors.green,
+    borderWidth: 1,
+    opacity: 0.7,
+  },
+  settlementTextPaid: {
+    color: Colors.textSecondary,
+    textDecorationLine: 'line-through',
+  },
+  settlementCheck: {
+    color: Colors.green,
+    fontSize: FontSize.md,
     fontWeight: '800',
   },
   chipSumRow: {

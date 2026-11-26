@@ -9,20 +9,22 @@ import {
   Alert,
   Modal,
   ScrollView,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSessionStore, usePlayersStore, useConfigStore } from '../src/store';
+import { useSessionStore, usePlayersStore, useConfigStore, useHistoryStore } from '../src/store';
 import { PlayerCard } from '../src/components/PlayerCard';
 import { TransactionModal } from '../src/components/TransactionModal';
-import { formatDateTime } from '../src/utils/currency';
+import { formatDateTime, formatCurrency } from '../src/utils/currency';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { Player, BANCA_ID } from '../src/types';
 
 export default function SessionScreen() {
   const router = useRouter();
-  const { session, startSession, endSession, addTransaction, buyFromBanca, returnToBanca } = useSessionStore();
+  const { session, startSession, endSession, addTransaction, buyFromBanca, returnToBanca, addPlayerToSession } = useSessionStore();
   const { players } = usePlayersStore();
   const { gameValue } = useConfigStore();
+  const { archiveSession } = useHistoryStore();
 
   const [txModalVisible, setTxModalVisible] = useState(false);
   const [txInitialFrom, setTxInitialFrom] = useState<string | undefined>();
@@ -67,6 +69,9 @@ export default function SessionScreen() {
   };
 
   const [confirmEndVisible, setConfirmEndVisible] = useState(false);
+  const [addPlayerVisible, setAddPlayerVisible] = useState(false);
+  const [addPlayerBuyIn, setAddPlayerBuyIn] = useState<{ id: string; name: string } | null>(null);
+  const [addPlayerAmountStr, setAddPlayerAmountStr] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -177,7 +182,7 @@ export default function SessionScreen() {
           Inicio: {formatDateTime(session.startedAt)} · {String(Math.floor(elapsed / 3600)).padStart(2, '0')}:{String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}
         </Text>
         <Text style={styles.sessionInfoText}>
-          {sessionPlayers.length} jugadores · {session.transactions.length} movimientos
+          👤 {sessionPlayers.length} · 🔄 {session.transactions.length}
         </Text>
       </View>
 
@@ -211,10 +216,89 @@ export default function SessionScreen() {
         >
           <Text style={styles.newTxBtnText}>+ Transacción</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.addPlayerBtn} onPress={() => setAddPlayerVisible(true)}>
+          <Text style={styles.addPlayerBtnText}>👤+</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.endBtn} onPress={handleEndSession}>
           <Text style={styles.endBtnText}>Terminar</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal visible={addPlayerVisible} transparent animationType="slide" onRequestClose={() => setAddPlayerVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Agregar jugador</Text>
+            <Text style={styles.modalSubtitle}>Elegí quién se suma a la partida</Text>
+            <ScrollView style={{ maxHeight: 320, marginBottom: 16 }}>
+              {players.filter(p => !session.players.some(sp => sp.playerId === p.id)).length === 0 ? (
+                <Text style={styles.emptyList}>Todos los jugadores ya están en la partida</Text>
+              ) : (
+                players.filter(p => !session.players.some(sp => sp.playerId === p.id)).map(p => (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={styles.selectItem}
+                    onPress={() => {
+                      setAddPlayerBuyIn({ id: p.id, name: p.alias || p.name });
+                      setAddPlayerAmountStr('');
+                    }}
+                  >
+                    <Text style={styles.selectItemText}>{p.name}{p.alias ? ` (${p.alias})` : ''}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setAddPlayerVisible(false)}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!addPlayerBuyIn} transparent animationType="slide" onRequestClose={() => setAddPlayerBuyIn(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Buy-in — {addPlayerBuyIn?.name}</Text>
+            <TouchableOpacity
+              style={styles.startBtn}
+              onPress={async () => {
+                const id = addPlayerBuyIn!.id;
+                setAddPlayerBuyIn(null);
+                setAddPlayerVisible(false);
+                await addPlayerToSession(id);
+                await buyFromBanca(id, gameValue);
+              }}
+            >
+              <Text style={styles.startBtnText}>1 juego ({formatCurrency(gameValue)})</Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalSubtitle, { textAlign: 'center', marginTop: 16, marginBottom: 8 }]}>— o monto libre —</Text>
+            <TextInput
+              style={styles.addPlayerInput}
+              value={addPlayerAmountStr}
+              onChangeText={setAddPlayerAmountStr}
+              keyboardType="decimal-pad"
+              placeholder={`Monto $ (1j = ${formatCurrency(gameValue)})`}
+              placeholderTextColor={Colors.textSecondary}
+            />
+            <TouchableOpacity
+              style={[styles.startBtn, { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.blue }]}
+              onPress={async () => {
+                const val = parseFloat(addPlayerAmountStr.replace(',', '.'));
+                if (isNaN(val) || val <= 0) return;
+                const id = addPlayerBuyIn!.id;
+                setAddPlayerBuyIn(null);
+                setAddPlayerVisible(false);
+                await addPlayerToSession(id);
+                await buyFromBanca(id, val);
+              }}
+            >
+              <Text style={[styles.startBtnText, { color: Colors.blue }]}>Confirmar monto</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setAddPlayerBuyIn(null)}>
+              <Text style={styles.cancelBtnText}>Volver</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <TransactionModal
         visible={txModalVisible}
@@ -234,7 +318,20 @@ export default function SessionScreen() {
             <Text style={styles.confirmSubtitle}>Vas a poder contar las fichas antes de ver los pagos.</Text>
             <TouchableOpacity
               style={styles.confirmEndBtn}
-              onPress={() => { setConfirmEndVisible(false); endSession(); router.push('/history?openChips=1'); }}
+              onPress={async () => {
+                setConfirmEndVisible(false);
+                if (session) {
+                  const netResults: Record<string, number> = {};
+                  for (const sp of session.players) {
+                    if (sp.playerId !== BANCA_ID) {
+                      netResults[sp.playerId] = sp.balance;
+                    }
+                  }
+                  await archiveSession(session, playerMap, gameValue, netResults);
+                }
+                await endSession();
+                router.push('/history?openChips=1');
+              }}
             >
               <Text style={styles.confirmEndBtnText}>Terminar</Text>
             </TouchableOpacity>
@@ -338,6 +435,20 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontWeight: '700',
   },
+  addPlayerBtn: {
+    backgroundColor: Colors.surfaceRaised,
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.blue,
+  },
+  addPlayerBtnText: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
   endBtn: {
     flex: 1,
     backgroundColor: Colors.surfaceRaised,
@@ -351,6 +462,17 @@ const styles = StyleSheet.create({
     color: Colors.red,
     fontSize: FontSize.md,
     fontWeight: '600',
+  },
+  addPlayerInput: {
+    backgroundColor: Colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 10,
+    marginBottom: Spacing.sm,
   },
   confirmSheet: {
     backgroundColor: Colors.surface,

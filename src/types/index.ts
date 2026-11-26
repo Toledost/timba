@@ -38,3 +38,16 @@ export interface Session {
   transactions: Transaction[];
   isActive: boolean;
 }
+
+export interface ArchivedSession {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  playerResults: {
+    playerId: string;
+    playerName: string;
+    netResult: number;
+  }[];
+  transactionCount: number;
+  gameValue: number;
+}

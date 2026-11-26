@@ -7,23 +7,26 @@ import {
   TextInput,
   Modal,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePlayersStore } from '../src/store';
+import { usePlayersStore, useHistoryStore, useSessionStore } from '../src/store';
 import { Player } from '../src/types';
 import { Colors, Spacing, FontSize } from '../src/theme';
-import { formatDateTime } from '../src/utils/currency';
+import { formatDateTime, formatCurrency } from '../src/utils/currency';
 
 export default function PlayersScreen() {
   const { players, addPlayer, updatePlayer, deletePlayer } = usePlayersStore();
+  const { archivedSessions } = useHistoryStore();
+  const { session } = useSessionStore();
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [nameInput, setNameInput] = useState('');
   const [aliasInput, setAliasInput] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<Player | null>(null);
+  const [nameError, setNameError] = useState('');
 
   const openAdd = () => {
     setEditingPlayer(null);
@@ -41,9 +44,10 @@ export default function PlayersScreen() {
 
   const handleSave = async () => {
     if (!nameInput.trim()) {
-      Alert.alert('Error', 'El nombre es requerido');
+      setNameError('El nombre es requerido');
       return;
     }
+    setNameError('');
     if (editingPlayer) {
       await updatePlayer(editingPlayer.id, nameInput.trim(), aliasInput.trim() || undefined);
     } else {
@@ -52,22 +56,25 @@ export default function PlayersScreen() {
     setModalVisible(false);
   };
 
+  const isInActiveSession = (id: string) =>
+    !!session?.isActive && session.players.some((sp) => sp.playerId === id);
+
   const handleDelete = (p: Player) => {
-    Alert.alert(
-      'Eliminar jugador',
-      `¿Eliminar a ${p.name}? Esta acción no se puede deshacer.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: () => deletePlayer(p.id),
-        },
-      ]
-    );
+    if (isInActiveSession(p.id)) return;
+    setDeleteTarget(p);
   };
 
-  const renderPlayer = ({ item }: { item: Player }) => (
+  const renderPlayer = ({ item }: { item: Player }) => {
+    const sessionsWithPlayer = archivedSessions.filter((as) =>
+      as.playerResults.some((pr) => pr.playerId === item.id)
+    );
+    const totalNet = sessionsWithPlayer.reduce((sum, as) => {
+      const pr = as.playerResults.find((r) => r.playerId === item.id);
+      return sum + (pr?.netResult ?? 0);
+    }, 0);
+    const hasStats = sessionsWithPlayer.length > 0;
+
+    return (
     <View style={styles.playerRow}>
       <TouchableOpacity style={styles.playerInfo} onPress={() => openEdit(item)}>
         <Text style={styles.playerName}>{item.name}</Text>
@@ -77,6 +84,19 @@ export default function PlayersScreen() {
         <Text style={styles.playerDate}>
           Creado: {formatDateTime(item.createdAt)}
         </Text>
+        {hasStats && (
+          <View style={styles.statsRow}>
+            <Text style={[
+              styles.statNet,
+              totalNet > 0 ? { color: Colors.green } : totalNet < 0 ? { color: Colors.red } : { color: Colors.textSecondary },
+            ]}>
+              {totalNet > 0 ? '+' : ''}{formatCurrency(totalNet)}
+            </Text>
+            <Text style={styles.statGames}>
+              {' · '}{sessionsWithPlayer.length} partida{sessionsWithPlayer.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
+        )}
       </TouchableOpacity>
       <View style={styles.playerActions}>
         <TouchableOpacity
@@ -87,15 +107,17 @@ export default function PlayersScreen() {
           <Text style={styles.editBtnText}>Editar</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.deleteBtn}
+          style={[styles.deleteBtn, isInActiveSession(item.id) && styles.deleteBtnDisabled]}
           onPress={() => handleDelete(item)}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+          disabled={isInActiveSession(item.id)}
         >
           <Text style={styles.deleteBtnText}>✕</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -142,15 +164,16 @@ export default function PlayersScreen() {
 
             <Text style={styles.inputLabel}>Nombre *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, nameError ? styles.inputError : null]}
               value={nameInput}
-              onChangeText={setNameInput}
+              onChangeText={(v) => { setNameInput(v); if (nameError) setNameError(''); }}
               placeholder="Nombre del jugador"
               placeholderTextColor={Colors.textSecondary}
               autoFocus
               returnKeyType="next"
               maxLength={40}
             />
+            {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
 
             <Text style={styles.inputLabel}>Alias (opcional)</Text>
             <TextInput
@@ -177,6 +200,24 @@ export default function PlayersScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={!!deleteTarget} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+        <View style={styles.deleteOverlay}>
+          <View style={styles.deleteSheet}>
+            <Text style={styles.deleteTitle}>¿Eliminar jugador?</Text>
+            <Text style={styles.deleteSubtitle}>{deleteTarget?.name} será eliminado permanentemente.</Text>
+            <TouchableOpacity
+              style={styles.deleteConfirmBtn}
+              onPress={() => { deletePlayer(deleteTarget!.id); setDeleteTarget(null); }}
+            >
+              <Text style={styles.deleteConfirmText}>Eliminar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setDeleteTarget(null)}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -252,6 +293,11 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  deleteBtnDisabled: {
+    borderColor: Colors.border,
+    backgroundColor: Colors.surfaceRaised,
+    opacity: 0.4,
   },
   deleteBtnText: {
     color: Colors.red,
@@ -351,5 +397,63 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     color: Colors.textSecondary,
     fontSize: FontSize.sm,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  statNet: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+  },
+  statGames: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+  },
+  inputError: {
+    borderColor: Colors.red,
+  },
+  errorText: {
+    color: Colors.red,
+    fontSize: FontSize.xs,
+    marginTop: -8,
+    marginBottom: Spacing.sm,
+  },
+  deleteOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: Spacing.md,
+  },
+  deleteSheet: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  deleteTitle: {
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  deleteSubtitle: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    marginBottom: Spacing.md,
+  },
+  deleteConfirmBtn: {
+    backgroundColor: Colors.red,
+    borderRadius: 10,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  deleteConfirmText: {
+    color: Colors.white,
+    fontSize: FontSize.md,
+    fontWeight: '700',
   },
 });

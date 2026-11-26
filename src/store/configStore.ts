@@ -25,6 +25,9 @@ interface ConfigState {
   loadConfig: () => Promise<void>;
   updateMultiplier: (multiplier: number) => Promise<void>;
   updateDenomination: (index: number, count: number) => Promise<void>;
+  updateDenominationValue: (index: number, value: number) => Promise<void>;
+  addDenomination: () => Promise<void>;
+  removeDenomination: (index: number) => Promise<void>;
   resetConfig: () => Promise<void>;
 }
 
@@ -72,6 +75,33 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       config: newConfig,
       gameValue: computeGameValue(newDenominations, newConfig.multiplier),
     });
+  },
+
+  updateDenominationValue: async (index: number, value: number) => {
+    const { config } = get();
+    const newDenominations = config.denominations.map((d, i) =>
+      i === index ? { ...d, value } : d
+    );
+    const newConfig = { ...config, denominations: newDenominations };
+    await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(newConfig));
+    set({ config: newConfig, gameValue: computeGameValue(newDenominations, newConfig.multiplier) });
+  },
+
+  addDenomination: async () => {
+    const { config } = get();
+    const newDenominations = [...config.denominations, { value: 1, count: 5 }];
+    const newConfig = { ...config, denominations: newDenominations };
+    await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(newConfig));
+    set({ config: newConfig, gameValue: computeGameValue(newDenominations, newConfig.multiplier) });
+  },
+
+  removeDenomination: async (index: number) => {
+    const { config } = get();
+    if (config.denominations.length <= 1) return;
+    const newDenominations = config.denominations.filter((_, i) => i !== index);
+    const newConfig = { ...config, denominations: newDenominations };
+    await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(newConfig));
+    set({ config: newConfig, gameValue: computeGameValue(newDenominations, newConfig.multiplier) });
   },
 
   resetConfig: async () => {

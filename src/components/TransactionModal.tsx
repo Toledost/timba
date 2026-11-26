@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -41,6 +41,13 @@ export function TransactionModal({
   const [amountStr, setAmountStr] = useState<string>('1');
   const [note, setNote] = useState<string>('');
   const [useGames, setUseGames] = useState(true);
+  const [confirmed, setConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (!confirmed) return;
+    const t = setTimeout(() => setConfirmed(false), 1500);
+    return () => clearTimeout(t);
+  }, [confirmed]);
 
   const reset = useCallback(() => {
     setFromId(initialFromId ?? '');
@@ -86,7 +93,9 @@ export function TransactionModal({
     }
 
     onConfirm(fromId, toId, amount, note.trim() || undefined);
-    reset();
+    setConfirmed(true);
+    setAmountStr('1');
+    setNote('');
   };
 
   return (
@@ -212,8 +221,13 @@ export function TransactionModal({
             />
 
             {/* Confirm */}
-            <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm}>
-              <Text style={styles.confirmBtnText}>Registrar Transacción</Text>
+            <TouchableOpacity
+              style={[styles.confirmBtn, confirmed && styles.confirmBtnDone]}
+              onPress={handleConfirm}
+            >
+              <Text style={styles.confirmBtnText}>
+                {confirmed ? '✓ Registrado' : 'Registrar Transacción'}
+              </Text>
             </TouchableOpacity>
 
             <View style={{ height: 24 }} />
@@ -362,5 +376,8 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: FontSize.md,
     fontWeight: '700',
+  },
+  confirmBtnDone: {
+    backgroundColor: Colors.green,
   },
 });
