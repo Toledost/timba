@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import {
   View,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSessionStore, usePlayersStore, useConfigStore, useHistoryStore } from '../src/store';
@@ -17,14 +18,14 @@ import { ChipCountSection } from '../src/components/ChipCountSection';
 import { TransactionModal } from '../src/components/TransactionModal';
 
 export default function HistoryScreen() {
-  const { session, lastSessionId, lastSessionPlayers, lastSessionTransactions, removeTransaction, editTransaction } = useSessionStore();
+  const { session, lastSessionId, lastSessionPlayers, lastSessionTransactions, removeTransaction, editTransaction, endSession } = useSessionStore();
   const { players } = usePlayersStore();
   const { config, gameValue } = useConfigStore();
-  const { archivedSessions, deleteSession } = useHistoryStore();
+  const { archivedSessions, deleteSession, archiveSession } = useHistoryStore();
 
   const { openChips } = useLocalSearchParams<{ openChips?: string }>();
 
-  const playerMap = Object.fromEntries(players.map((p) => [p.id, p]));
+  const playerMap = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players]);
   const [confirmTx, setConfirmTx] = useState<string | null>(null);
   const [editTxId, setEditTxId] = useState<string | null>(null);
   const sessionEnded = !session && !!lastSessionPlayers;
@@ -60,6 +61,10 @@ export default function HistoryScreen() {
             allPlayers={allPlayers}
             playerMap={playerMap}
             config={config}
+            onArchiveAndClose={session ? async (netResults) => {
+              await archiveSession(session, playerMap as Record<string, import('../src/types').Player>, gameValue, netResults);
+              await endSession();
+            } : undefined}
           />
         )}
       </View>
@@ -73,6 +78,25 @@ export default function HistoryScreen() {
 
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [deleteSessionTarget, setDeleteSessionTarget] = useState<string | null>(null);
+
+  const shareSession = async (as: typeof archivedSessions[number]) => {
+    const durationMs = as.durationMs ?? (as.endedAt - as.startedAt);
+    const durationH = Math.floor(durationMs / 3600000);
+    const durationM = Math.floor((durationMs % 3600000) / 60000);
+    const durationStr = `${String(durationH).padStart(2, '0')}:${String(durationM).padStart(2, '0')}`;
+    const lines = [
+      `🃏 Timba — ${formatDateTime(as.startedAt)}`,
+      `⏱ Duración: ${durationStr}  |  🔄 ${as.transactionCount} movimientos`,
+      '',
+      '📊 Resultado:',
+      ...as.playerResults.map((pr) => {
+        const sign = pr.netResult > 0 ? '+' : '';
+        return `  ${pr.playerName}: ${sign}${formatCurrency(pr.netResult)}`;
+      }),
+    ];
+    if (as.totalInPlay != null) lines.push('', `💰 Total en juego: ${formatCurrency(as.totalInPlay)}`);
+    await Share.share({ message: lines.join('\n') });
+  };
 
   const renderArchivedSessions = () => (
     <View style={styles.chipSection}>
@@ -103,6 +127,12 @@ export default function HistoryScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <Text style={styles.archivedMeta}>{durationStr} · {as.transactionCount} mov.</Text>
                       <TouchableOpacity
+                        onPress={() => shareSession(as)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.shareBtn}>⬆</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         onPress={() => setDeleteSessionTarget(as.id)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       >
@@ -121,6 +151,32 @@ export default function HistoryScreen() {
                       </Text>
                     </View>
                   ))}
+                  {(as.biggestWinner || as.biggestLoser || as.totalInPlay) && (
+                    <View style={styles.statsRow}>
+                      {as.totalInPlay != null && (
+                        <View style={styles.statChip}>
+                          <Text style={styles.statChipLabel}>En juego</Text>
+                          <Text style={styles.statChipValue}>{formatCurrency(as.totalInPlay)}</Text>
+                        </View>
+                      )}
+                      {as.biggestWinner && (
+                        <View style={styles.statChip}>
+                          <Text style={styles.statChipLabel}>Mayor ganador</Text>
+                          <Text style={[styles.statChipValue, { color: Colors.green }]}>
+                            {as.biggestWinner.name} +{formatCurrency(as.biggestWinner.amount)}
+                          </Text>
+                        </View>
+                      )}
+                      {as.biggestLoser && (
+                        <View style={styles.statChip}>
+                          <Text style={styles.statChipLabel}>Mayor perdedor</Text>
+                          <Text style={[styles.statChipValue, { color: Colors.red }]}>
+                            {as.biggestLoser.name} {formatCurrency(as.biggestLoser.amount)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
               );
             })
@@ -550,6 +606,38 @@ const styles = StyleSheet.create({
   },
   archivedPlayerResult: {
     fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+
+  shareBtn: {
+    color: Colors.blue,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  statChip: {
+    backgroundColor: Colors.surfaceRaised,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  statChipLabel: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+  },
+  statChipValue: {
+    color: Colors.text,
+    fontSize: FontSize.xs,
     fontWeight: '700',
   },
 

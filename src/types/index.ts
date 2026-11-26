@@ -50,4 +50,16 @@ export interface ArchivedSession {
   }[];
   transactionCount: number;
   gameValue: number;
+  // stats added in schema v2
+  biggestWinner?: { name: string; amount: number };
+  biggestLoser?: { name: string; amount: number };
+  totalInPlay?: number;
+  durationMs?: number;
 }
+
+// Schema versions for migration
+export const SCHEMA_VERSIONS = {
+  session: 1,
+  history: 2,
+  config: 1,
+} as const;

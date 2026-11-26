@@ -12,10 +12,11 @@ import {
   TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSessionStore, usePlayersStore, useConfigStore, useHistoryStore } from '../src/store';
+import { useSessionStore, usePlayersStore, useConfigStore } from '../src/store';
 import { PlayerCard } from '../src/components/PlayerCard';
 import { TransactionModal } from '../src/components/TransactionModal';
 import { formatDateTime, formatCurrency } from '../src/utils/currency';
+import { validateZeroSum } from '../src/utils/balance';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { Player, BANCA_ID } from '../src/types';
 
@@ -24,7 +25,6 @@ export default function SessionScreen() {
   const { session, startSession, endSession, addTransaction, buyFromBanca, returnToBanca, addPlayerToSession } = useSessionStore();
   const { players } = usePlayersStore();
   const { gameValue } = useConfigStore();
-  const { archiveSession } = useHistoryStore();
 
   const [txModalVisible, setTxModalVisible] = useState(false);
   const [txInitialFrom, setTxInitialFrom] = useState<string | undefined>();
@@ -186,6 +186,7 @@ export default function SessionScreen() {
         </Text>
       </View>
 
+
       <FlatList
         data={sessionPlayers}
         keyExtractor={(sp) => sp.playerId}
@@ -315,29 +316,33 @@ export default function SessionScreen() {
         <View style={[styles.modalOverlay, { justifyContent: 'center' }]}>
           <View style={styles.confirmSheet}>
             <Text style={styles.confirmTitle}>¿Terminás la partida?</Text>
-            <Text style={styles.confirmSubtitle}>Vas a poder contar las fichas antes de ver los pagos.</Text>
-            <TouchableOpacity
-              style={styles.confirmEndBtn}
-              onPress={async () => {
-                setConfirmEndVisible(false);
-                if (session) {
-                  const netResults: Record<string, number> = {};
-                  for (const sp of session.players) {
-                    if (sp.playerId !== BANCA_ID) {
-                      netResults[sp.playerId] = sp.balance;
-                    }
-                  }
-                  await archiveSession(session, playerMap, gameValue, netResults);
-                }
-                await endSession();
-                router.push('/history?openChips=1');
-              }}
-            >
-              <Text style={styles.confirmEndBtnText}>Terminar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmEndVisible(false)}>
-              <Text style={styles.cancelBtnText}>Cancelar</Text>
-            </TouchableOpacity>
+            {!validateZeroSum(session.players) ? (
+              <>
+                <Text style={styles.zeroSumWarning}>
+                  ⚠ Los saldos no suman cero. Revisá las transacciones antes de cerrar.
+                </Text>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmEndVisible(false)}>
+                  <Text style={styles.cancelBtnText}>Volver</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.confirmSubtitle}>Vas a poder contar las fichas antes de ver los pagos.</Text>
+                <TouchableOpacity
+                  style={styles.confirmEndBtn}
+                  onPress={async () => {
+                    setConfirmEndVisible(false);
+                    await endSession();
+                    router.push('/history?openChips=1');
+                  }}
+                >
+                  <Text style={styles.confirmEndBtnText}>Terminar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmEndVisible(false)}>
+                  <Text style={styles.cancelBtnText}>Cancelar</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -492,6 +497,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: FontSize.sm,
     marginBottom: Spacing.md,
+  },
+  zeroSumWarning: {
+    color: Colors.yellow,
+    fontSize: FontSize.sm,
+    marginBottom: Spacing.md,
+    lineHeight: 20,
   },
   confirmEndBtn: {
     backgroundColor: Colors.red,

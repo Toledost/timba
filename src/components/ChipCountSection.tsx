@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -8,7 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { SessionPlayer, GameConfig, BANCA_ID } from '../types';
+import { SessionPlayer, GameConfig, BANCA_ID, Session, Player } from '../types';
 import { formatCurrency } from '../utils/currency';
 import { Colors, Spacing, FontSize } from '../theme';
 
@@ -18,6 +18,10 @@ interface Props {
   allPlayers: SessionPlayer[];
   playerMap: Record<string, { name: string; alias?: string }>;
   config: GameConfig;
+  session?: Session | null;
+  fullPlayerMap?: Record<string, Player>;
+  gameValue?: number;
+  onArchiveAndClose?: (netResults: Record<string, number>) => Promise<void>;
 }
 
 const DenomRow = React.memo(function DenomRow({
@@ -49,7 +53,7 @@ const DenomRow = React.memo(function DenomRow({
   );
 });
 
-export function ChipCountSection({ sessionId, sessionPlayers, allPlayers, playerMap, config }: Props) {
+export function ChipCountSection({ sessionId, sessionPlayers, allPlayers, playerMap, config, onArchiveAndClose }: Props) {
   const CHIP_KEY = `@timba:chips:${sessionId}`;
   const [chipCounts, setChipCounts] = useState<Record<string, Record<number, string>>>({});
   const [copied, setCopied] = useState(false);
@@ -78,45 +82,70 @@ export function ChipCountSection({ sessionId, sessionPlayers, allPlayers, player
     });
   }, [CHIP_KEY]);
 
-  const getPlayerTotal = (playerId: string): number =>
-    config.denominations.reduce((sum, denom, idx) => {
-      const qty = parseInt(chipCounts[playerId]?.[idx] ?? '0', 10) || 0;
-      return sum + qty * denom.value * config.multiplier;
-    }, 0);
+  const humanPlayers = useMemo(
+    () => sessionPlayers.filter((sp) => sp.playerId !== BANCA_ID),
+    [sessionPlayers]
+  );
 
-  const humanPlayers = sessionPlayers.filter((sp) => sp.playerId !== BANCA_ID);
-  const getName = (id: string) =>
-    playerMap[id]?.alias || playerMap[id]?.name || id;
+  const getName = (id: string) => playerMap[id]?.alias || playerMap[id]?.name || id;
 
-  const bancaBal = allPlayers.find((p) => p.playerId === BANCA_ID)?.balance ?? 0;
-  const anyFilled = humanPlayers.some((sp) => getPlayerTotal(sp.playerId) !== 0);
-  const totalChips = humanPlayers.reduce((sum, sp) => sum + getPlayerTotal(sp.playerId), 0);
+  const bancaBal = useMemo(
+    () => allPlayers.find((p) => p.playerId === BANCA_ID)?.balance ?? 0,
+    [allPlayers]
+  );
+
+  const playerTotals = useMemo(() =>
+    Object.fromEntries(
+      humanPlayers.map((sp) => [
+        sp.playerId,
+        config.denominations.reduce((sum, denom, idx) => {
+          const qty = parseInt(chipCounts[sp.playerId]?.[idx] ?? '0', 10) || 0;
+          return sum + qty * denom.value * config.multiplier;
+        }, 0),
+      ])
+    ),
+    [humanPlayers, chipCounts, config.denominations, config.multiplier]
+  );
+
+  const getPlayerTotal = (playerId: string) => playerTotals[playerId] ?? 0;
+
+  const anyFilled = useMemo(
+    () => humanPlayers.some((sp) => (playerTotals[sp.playerId] ?? 0) !== 0),
+    [humanPlayers, playerTotals]
+  );
+
+  const totalChips = useMemo(
+    () => humanPlayers.reduce((sum, sp) => sum + (playerTotals[sp.playerId] ?? 0), 0),
+    [humanPlayers, playerTotals]
+  );
+
   const expectedTotal = Math.abs(bancaBal);
   const chipsMatch = anyFilled && Math.abs(totalChips - expectedTotal) < 1;
 
-  const nets = humanPlayers.map((sp) => {
-    const sessionBal = allPlayers.find((p) => p.playerId === sp.playerId)?.balance ?? 0;
-    const chips = getPlayerTotal(sp.playerId);
-    return { id: sp.playerId, net: chips + sessionBal };
-  });
+  const nets = useMemo(() =>
+    humanPlayers.map((sp) => {
+      const sessionBal = allPlayers.find((p) => p.playerId === sp.playerId)?.balance ?? 0;
+      return { id: sp.playerId, net: (playerTotals[sp.playerId] ?? 0) + sessionBal };
+    }),
+    [humanPlayers, allPlayers, playerTotals]
+  );
 
-  const debtors = nets.filter((t) => t.net < 0).map((t) => ({ id: t.id, bal: -t.net }));
-  const creditors = nets.filter((t) => t.net > 0).map((t) => ({ id: t.id, bal: t.net }));
-  const settlements: { from: string; to: string; amount: number }[] = [];
-
-  if (anyFilled) {
-    const d = debtors.map((t) => ({ ...t }));
-    const c = creditors.map((t) => ({ ...t }));
+  const settlements = useMemo(() => {
+    if (!anyFilled) return [];
+    const d = nets.filter((t) => t.net < 0).map((t) => ({ id: t.id, bal: -t.net }));
+    const c = nets.filter((t) => t.net > 0).map((t) => ({ id: t.id, bal: t.net }));
+    const result: { from: string; to: string; amount: number }[] = [];
     let i = 0, j = 0;
     while (i < d.length && j < c.length) {
       const amount = Math.min(d[i].bal, c[j].bal);
-      settlements.push({ from: d[i].id, to: c[j].id, amount });
+      result.push({ from: d[i].id, to: c[j].id, amount });
       d[i].bal -= amount;
       c[j].bal -= amount;
       if (d[i].bal < 0.01) i++;
       if (c[j].bal < 0.01) j++;
     }
-  }
+    return result;
+  }, [anyFilled, nets]);
 
   return (
     <View style={styles.body}>
@@ -168,6 +197,19 @@ export function ChipCountSection({ sessionId, sessionPlayers, allPlayers, player
             {formatCurrency(totalChips)} / {formatCurrency(expectedTotal)}
           </Text>
         </View>
+      )}
+
+      {chipsMatch && onArchiveAndClose && (
+        <TouchableOpacity
+          style={styles.closeSessionBtn}
+          onPress={() => {
+            const netResults: Record<string, number> = {};
+            for (const t of nets) netResults[t.id] = t.net;
+            onArchiveAndClose(netResults);
+          }}
+        >
+          <Text style={styles.closeSessionBtnText}>✓ Fichas cuadran — Cerrar partida</Text>
+        </TouchableOpacity>
       )}
 
       {anyFilled && (
@@ -417,6 +459,18 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+  },
+  closeSessionBtn: {
+    margin: Spacing.md,
+    backgroundColor: Colors.green,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  closeSessionBtnText: {
+    color: Colors.background,
+    fontSize: FontSize.md,
+    fontWeight: '800',
   },
   chipSumOk: {
     backgroundColor: '#0d2b15',
