@@ -12,11 +12,13 @@ function generateId(): string {
 interface SessionState {
   session: Session | null;
   lastSessionId: string | null;
+  lastSessionStartedAt: number | null;
   lastSessionPlayers: Session['players'] | null;
   lastSessionTransactions: Session['transactions'] | null;
   isLoaded: boolean;
   loadSession: () => Promise<void>;
   startSession: (playerIds: string[]) => Promise<void>;
+  markSessionEnding: () => Promise<void>;
   endSession: () => Promise<void>;
   addTransaction: (
     fromPlayerId: string,
@@ -44,6 +46,7 @@ async function persist(session: Session | null) {
 export const useSessionStore = create<SessionState>((set, get) => ({
   session: null,
   lastSessionId: null,
+  lastSessionStartedAt: null,
   lastSessionPlayers: null,
   lastSessionTransactions: null,
   isLoaded: false,
@@ -77,14 +80,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ session });
   },
 
-  endSession: async () => {
+  markSessionEnding: async () => {
     const { session } = get();
+    if (!session) return;
+    const updated = { ...session, isActive: false };
+    await persist(updated);
+    set({ session: updated });
+  },
+
+  endSession: async () => {
     await persist(null);
     set({
       session: null,
-      lastSessionId: session?.id ?? null,
-      lastSessionPlayers: session?.players ?? null,
-      lastSessionTransactions: session?.transactions ?? null,
+      lastSessionId: null,
+      lastSessionStartedAt: null,
+      lastSessionPlayers: null,
+      lastSessionTransactions: null,
     });
   },
 

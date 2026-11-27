@@ -18,7 +18,7 @@ import { ChipCountSection } from '../src/components/ChipCountSection';
 import { TransactionModal } from '../src/components/TransactionModal';
 
 export default function HistoryScreen() {
-  const { session, lastSessionId, lastSessionPlayers, lastSessionTransactions, removeTransaction, editTransaction, endSession } = useSessionStore();
+  const { session, removeTransaction, editTransaction, endSession } = useSessionStore();
   const { players } = usePlayersStore();
   const { config, gameValue } = useConfigStore();
   const { archivedSessions, deleteSession, archiveSession } = useHistoryStore();
@@ -28,11 +28,10 @@ export default function HistoryScreen() {
   const playerMap = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players]);
   const [confirmTx, setConfirmTx] = useState<string | null>(null);
   const [editTxId, setEditTxId] = useState<string | null>(null);
-  const sessionEnded = !session && !!lastSessionPlayers;
   const [chipCountOpen, setChipCountOpen] = useState(false);
   const [historyOpenOverride, setHistoryOpenOverride] = useState<boolean | null>(null);
 
-  const isHistoryOpen = historyOpenOverride !== null ? historyOpenOverride : !sessionEnded;
+  const isHistoryOpen = historyOpenOverride !== null ? historyOpenOverride : true;
 
   useEffect(() => {
     if (openChips === '1') {
@@ -41,9 +40,7 @@ export default function HistoryScreen() {
     }
   }, [openChips]);
   const renderChipCountFooter = () => {
-    const sessionPlayers = session?.players ?? lastSessionPlayers;
-    const allPlayers = session?.players ?? lastSessionPlayers ?? [];
-    if (!sessionPlayers || !config) return null;
+    if (!session || !config) return null;
     return (
       <View style={styles.chipSection}>
         <TouchableOpacity
@@ -56,22 +53,22 @@ export default function HistoryScreen() {
         </TouchableOpacity>
         {chipCountOpen && (
           <ChipCountSection
-            sessionId={session?.id ?? lastSessionId ?? ''}
-            sessionPlayers={sessionPlayers}
-            allPlayers={allPlayers}
+            sessionId={session.id}
+            sessionPlayers={session.players}
+            allPlayers={session.players}
             playerMap={playerMap}
             config={config}
-            onArchiveAndClose={session ? async (netResults) => {
+            onArchiveAndClose={async (netResults) => {
               await archiveSession(session, playerMap as Record<string, import('../src/types').Player>, gameValue, netResults);
               await endSession();
-            } : undefined}
+            }}
           />
         )}
       </View>
     );
   };
 
-  const transactions = [...(session?.transactions ?? lastSessionTransactions ?? [])].reverse();
+  const transactions = [...(session?.transactions ?? [])].reverse();
 
   const getName = (id: string) =>
     id === BANCA_ID ? 'Banca' : playerMap[id]?.alias || playerMap[id]?.name || id;
@@ -190,7 +187,7 @@ export default function HistoryScreen() {
     <View style={styles.chipSection}>
       <TouchableOpacity
         style={styles.chipSectionHeader}
-        onPress={() => setHistoryOpenOverride((v) => !(v !== null ? v : !sessionEnded))}
+        onPress={() => setHistoryOpenOverride((v) => !(v !== null ? v : true))}
         activeOpacity={0.7}
       >
         <Text style={styles.chipSectionTitle}>📋 Movimientos ({transactions.length})</Text>
@@ -261,33 +258,25 @@ export default function HistoryScreen() {
   if (!session) {
     return (
       <SafeAreaView style={styles.safe}>
-        {lastSessionPlayers ? (
-          <>
-            <View style={styles.header}>
-              <Text style={styles.headerTitle}>Partida finalizada</Text>
-            </View>
-            <FlatList
-              data={[]}
-              renderItem={() => null}
-              ListFooterComponent={() => (
-                <>
-                  {renderHistorySection()}
-                  {renderChipCountFooter()}
-                  {renderArchivedSessions()}
-                </>
-              )}
-              contentContainerStyle={{ paddingBottom: 32 }}
-            />
-          </>
-        ) : (
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>📋</Text>
-            <Text style={styles.emptyTitle}>Sin partida activa</Text>
-            <Text style={styles.emptySubtitle}>
-              El historial aparece aquí durante una partida
-            </Text>
-          </View>
-        )}
+        <FlatList
+          data={[]}
+          renderItem={() => null}
+          ListFooterComponent={() => (
+            <>
+              {archivedSessions.length === 0 ? (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyIcon}>📋</Text>
+                  <Text style={styles.emptyTitle}>Sin partidas</Text>
+                  <Text style={styles.emptySubtitle}>
+                    Las partidas guardadas aparecen aquí
+                  </Text>
+                </View>
+              ) : null}
+                {renderArchivedSessions()}
+              </>
+            )}
+            contentContainerStyle={{ paddingBottom: 32 }}
+          />
         {renderDeleteSessionModal()}
       </SafeAreaView>
     );
@@ -295,9 +284,6 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Historial</Text>
-      </View>
 
       <FlatList
         data={[]}
@@ -866,5 +852,30 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: FontSize.sm,
     fontWeight: '800',
+  },
+  closeWithoutChipsBtn: {
+    margin: Spacing.md,
+    marginTop: 0,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.red,
+  },
+  closeWithoutChipsBtnText: {
+    color: Colors.red,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+  closeSesionHeaderBtn: {
+    backgroundColor: Colors.red,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  closeSesionHeaderBtnText: {
+    color: '#fff',
+    fontSize: FontSize.sm,
+    fontWeight: '700',
   },
 });

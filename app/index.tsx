@@ -22,7 +22,7 @@ import { Player, BANCA_ID } from '../src/types';
 
 export default function SessionScreen() {
   const router = useRouter();
-  const { session, startSession, endSession, addTransaction, buyFromBanca, returnToBanca, addPlayerToSession } = useSessionStore();
+  const { session, startSession, markSessionEnding, addTransaction, buyFromBanca, returnToBanca, addPlayerToSession } = useSessionStore();
   const { players } = usePlayersStore();
   const { gameValue } = useConfigStore();
 
@@ -102,19 +102,32 @@ export default function SessionScreen() {
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>♠</Text>
           <Text style={styles.emptyTitle}>Timba</Text>
-          <Text style={styles.emptySubtitle}>No hay partida activa</Text>
 
-          <TouchableOpacity
-            style={styles.startBtn}
-            onPress={() => setSelectPlayersVisible(true)}
-          >
-            <Text style={styles.startBtnText}>Nueva Partida</Text>
-          </TouchableOpacity>
-
-          {players.length === 0 && (
-            <Text style={styles.hint}>
-              Primero agrega jugadores en la tab "Jugadores"
-            </Text>
+          {session && !session.isActive ? (
+            <>
+              <Text style={styles.emptySubtitle}>Tenés una partida sin guardar</Text>
+              <TouchableOpacity
+                style={styles.startBtn}
+                onPress={() => router.push('/history?openChips=1')}
+              >
+                <Text style={styles.startBtnText}>Ir a cerrar la partida</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.emptySubtitle}>No hay partida activa</Text>
+              <TouchableOpacity
+                style={styles.startBtn}
+                onPress={() => setSelectPlayersVisible(true)}
+              >
+                <Text style={styles.startBtnText}>Nueva Partida</Text>
+              </TouchableOpacity>
+              {players.length === 0 && (
+                <Text style={styles.hint}>
+                  Primero agrega jugadores en la tab "Jugadores"
+                </Text>
+              )}
+            </>
           )}
         </View>
 
@@ -332,7 +345,7 @@ export default function SessionScreen() {
                   style={styles.confirmEndBtn}
                   onPress={async () => {
                     setConfirmEndVisible(false);
-                    await endSession();
+                    await markSessionEnding();
                     router.push('/history?openChips=1');
                   }}
                 >

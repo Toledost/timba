@@ -51,10 +51,16 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       const storedVersion = versionRaw ? parseInt(versionRaw, 10) : 1;
       if (raw) {
         const parsed: ArchivedSession[] = JSON.parse(raw);
-        const archivedSessions = storedVersion < CURRENT_VERSION
+        const migrated = storedVersion < CURRENT_VERSION
           ? parsed.map(migrateArchivedSession)
           : parsed;
-        if (storedVersion < CURRENT_VERSION) {
+        const seen = new Set<string>();
+        const archivedSessions = migrated.filter((s) => {
+          if (seen.has(s.id)) return false;
+          seen.add(s.id);
+          return true;
+        });
+        if (storedVersion < CURRENT_VERSION || archivedSessions.length !== migrated.length) {
           await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(archivedSessions));
           await AsyncStorage.setItem(HISTORY_VERSION_KEY, String(CURRENT_VERSION));
         }
@@ -99,6 +105,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     };
 
     const { archivedSessions } = get();
+    if (archivedSessions.some((s) => s.id === archived.id)) return;
     const updated = [archived, ...archivedSessions];
     await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
     await AsyncStorage.setItem(HISTORY_VERSION_KEY, String(CURRENT_VERSION));

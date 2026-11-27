@@ -58,6 +58,7 @@ export function ChipCountSection({ sessionId, sessionPlayers, allPlayers, player
   const [chipCounts, setChipCounts] = useState<Record<string, Record<number, string>>>({});
   const [copied, setCopied] = useState(false);
   const [paidSettlements, setPaidSettlements] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
 
   const togglePaid = (idx: number) => {
     setPaidSettlements((prev) => {
@@ -199,17 +200,32 @@ export function ChipCountSection({ sessionId, sessionPlayers, allPlayers, player
         </View>
       )}
 
-      {chipsMatch && onArchiveAndClose && (
-        <TouchableOpacity
-          style={styles.closeSessionBtn}
-          onPress={() => {
-            const netResults: Record<string, number> = {};
-            for (const t of nets) netResults[t.id] = t.net;
-            onArchiveAndClose(netResults);
-          }}
-        >
-          <Text style={styles.closeSessionBtnText}>✓ Fichas cuadran — Cerrar partida</Text>
-        </TouchableOpacity>
+      {onArchiveAndClose && !saving && (
+        chipsMatch ? (
+          <TouchableOpacity
+            style={styles.closeSessionBtn}
+            onPress={async () => {
+              setSaving(true);
+              const netResults: Record<string, number> = {};
+              for (const t of nets) netResults[t.id] = t.net;
+              await onArchiveAndClose(netResults);
+            }}
+          >
+            <Text style={styles.closeSessionBtnText}>✓ Fichas cuadran — Guardar partida</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.closeSessionBtnWarn}
+            onPress={async () => {
+              setSaving(true);
+              const netResults: Record<string, number> = {};
+              for (const t of nets) netResults[t.id] = t.net;
+              await onArchiveAndClose(netResults);
+            }}
+          >
+            <Text style={styles.closeSessionBtnWarnText}>⚠ Guardar sin verificar</Text>
+          </TouchableOpacity>
+        )
       )}
 
       {anyFilled && (
@@ -467,10 +483,24 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
   },
+  closeSessionBtnWarn: {
+    margin: Spacing.md,
+    backgroundColor: 'transparent',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.yellow,
+  },
   closeSessionBtnText: {
     color: Colors.background,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  closeSessionBtnWarnText: {
+    color: Colors.yellow,
+    fontSize: FontSize.md,
+    fontWeight: '700',
   },
   chipSumOk: {
     backgroundColor: '#0d2b15',
