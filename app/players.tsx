@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePlayersStore, useHistoryStore, useSessionStore } from '../src/store';
@@ -27,6 +28,39 @@ export default function PlayersScreen() {
   const [aliasInput, setAliasInput] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Player | null>(null);
   const [nameError, setNameError] = useState('');
+  const [statsPlayer, setStatsPlayer] = useState<Player | null>(null);
+
+  const playerStats = useMemo(() => {
+    if (!statsPlayer) return null;
+    const sessions = archivedSessions
+      .filter((as) => as.playerResults.some((pr) => pr.playerId === statsPlayer.id))
+      .sort((a, b) => b.startedAt - a.startedAt);
+
+    const totalNet = sessions.reduce((sum, as) => {
+      const pr = as.playerResults.find((r) => r.playerId === statsPlayer.id);
+      return sum + (pr?.netResult ?? 0);
+    }, 0);
+
+    const results = sessions.map((as) => as.playerResults.find((r) => r.playerId === statsPlayer.id)!);
+    const best = results.length > 0 ? results.reduce((a, b) => (a.netResult > b.netResult ? a : b)) : null;
+    const worst = results.length > 0 ? results.reduce((a, b) => (a.netResult < b.netResult ? a : b)) : null;
+    const wins = results.filter((r) => r.netResult > 0).length;
+    const losses = results.filter((r) => r.netResult < 0).length;
+    const totalWon = results.reduce((s, r) => s + (r.netResult > 0 ? r.netResult : 0), 0);
+    const totalLost = results.reduce((s, r) => s + (r.netResult < 0 ? Math.abs(r.netResult) : 0), 0);
+
+    // racha actual
+    let streak = 0;
+    let streakType: 'win' | 'loss' | null = null;
+    for (const r of results) {
+      const type = r.netResult > 0 ? 'win' : r.netResult < 0 ? 'loss' : null;
+      if (streak === 0 && type) { streak = 1; streakType = type; }
+      else if (type === streakType) streak++;
+      else break;
+    }
+
+    return { sessions, totalNet, best, worst, wins, losses, totalWon, totalLost, streak, streakType };
+  }, [statsPlayer, archivedSessions]);
 
   const openAdd = () => {
     setEditingPlayer(null);
@@ -76,7 +110,7 @@ export default function PlayersScreen() {
 
     return (
     <View style={styles.playerRow}>
-      <TouchableOpacity style={styles.playerInfo} onPress={() => openEdit(item)}>
+      <TouchableOpacity style={styles.playerInfo} onPress={() => setStatsPlayer(item)}>
         <Text style={styles.playerName}>{item.name}</Text>
         {item.alias ? (
           <Text style={styles.playerAlias}>{item.alias}</Text>
@@ -200,6 +234,129 @@ export default function PlayersScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={!!statsPlayer} transparent animationType="slide" onRequestClose={() => setStatsPlayer(null)}>
+        <View style={styles.deleteOverlay}>
+          <View style={[styles.deleteSheet, { maxHeight: '85%' }]}>
+            {statsPlayer && playerStats && (
+              <>
+                <Text style={styles.modalTitle}>
+                  {statsPlayer.alias ?? statsPlayer.name}
+                  {statsPlayer.alias ? <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm }}> ({statsPlayer.name})</Text> : ''}
+                </Text>
+
+                {/* Resumen de partidas */}
+                {(() => {
+                  const { totalWon, totalLost, wins, losses, sessions } = playerStats;
+                  const totalVolume = totalWon + totalLost;
+                  const pctWin = totalVolume > 0 ? (totalWon / totalVolume) * 100 : 0;
+                  const pctLoss = totalVolume > 0 ? (totalLost / totalVolume) * 100 : 0;
+                  const even = sessions.length - wins - losses;
+                  return (
+                    <View style={styles.winBarSection}>
+                      <View style={styles.winBarRow}>
+                        <Text style={styles.winBarLabel}>
+                          <Text style={{ color: Colors.green }}>{wins} positivas</Text>
+                          {even > 0 ? <Text style={{ color: Colors.textSecondary }}>  ·  {even} neutras</Text> : null}
+                          <Text style={{ color: Colors.red }}>  ·  {losses} negativas</Text>
+                          <Text style={{ color: Colors.textSecondary }}>  ({sessions.length} partidas)</Text>
+                        </Text>
+                      </View>
+                      <View style={styles.winBar}>
+                        {pctWin > 0 && (
+                          <View style={[styles.winBarSegment, { flex: pctWin, backgroundColor: Colors.green }]} />
+                        )}
+                        {pctLoss > 0 && (
+                          <View style={[styles.winBarSegment, { flex: pctLoss, backgroundColor: Colors.red }]} />
+                        )}
+                        {totalVolume === 0 && (
+                          <View style={[styles.winBarSegment, { flex: 1, backgroundColor: Colors.border }]} />
+                        )}
+                      </View>
+                      {totalVolume > 0 && (
+                        <View style={styles.winBarPctRow}>
+                          <Text style={[styles.winBarPct, { color: Colors.green }]}>{Math.round(pctWin)}% ganado</Text>
+                          <Text style={[styles.winBarPct, { color: Colors.red }]}>{Math.round(pctLoss)}% perdido</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
+
+                {/* Total neto */}
+                <View style={[styles.totalRow, playerStats.totalNet > 0 ? styles.totalPos : playerStats.totalNet < 0 ? styles.totalNeg : styles.totalZero]}>
+                  <Text style={styles.totalLabel}>Resultado total</Text>
+                  <Text style={[styles.totalVal, { color: playerStats.totalNet > 0 ? Colors.green : playerStats.totalNet < 0 ? Colors.red : Colors.textSecondary }]}>
+                    {playerStats.totalNet > 0 ? '+' : ''}{formatCurrency(playerStats.totalNet)}
+                  </Text>
+                </View>
+
+                {/* Mejor / Peor */}
+                {playerStats.best && (
+                  <View style={styles.extremesRow}>
+                    <View style={styles.extremeChip}>
+                      <Text style={styles.statChipLbl}>Mejor partida</Text>
+                      <Text style={[styles.statChipVal, { color: playerStats.best.netResult >= 0 ? Colors.green : Colors.red }]}>
+                        {playerStats.best.netResult > 0 ? '+' : ''}{formatCurrency(playerStats.best.netResult)}
+                      </Text>
+                    </View>
+                    <View style={styles.extremeChip}>
+                      <Text style={styles.statChipLbl}>Peor partida</Text>
+                      <Text style={[styles.statChipVal, { color: Colors.red }]}>
+                        {formatCurrency(playerStats.worst?.netResult ?? 0)}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Racha */}
+                {playerStats.streak > 0 && (
+                  <View style={[styles.streakRow, { borderColor: playerStats.streakType === 'win' ? Colors.green : Colors.red }]}>
+                    <Text style={{ color: playerStats.streakType === 'win' ? Colors.green : Colors.red, fontWeight: '700', fontSize: FontSize.sm }}>
+                      {playerStats.streakType === 'win' ? '🔥' : '❄️'} Racha de {playerStats.streak} {playerStats.streakType === 'win' ? 'cierres positivos' : 'cierres negativos'}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Historial */}
+                <Text style={[styles.statChipLbl, { marginTop: Spacing.md, marginBottom: Spacing.xs }]}>HISTORIAL</Text>
+                <ScrollView style={{ maxHeight: 200 }}>
+                  {playerStats.sessions.map((as) => {
+                    const pr = as.playerResults.find((r) => r.playerId === statsPlayer.id)!;
+                    return (
+                      <View key={as.id} style={styles.historyRow}>
+                        <Text style={styles.historyDate}>{formatDateTime(as.startedAt)}</Text>
+                        <Text style={[styles.historyNet, pr.netResult > 0 ? { color: Colors.green } : pr.netResult < 0 ? { color: Colors.red } : { color: Colors.textSecondary }]}>
+                          {pr.netResult > 0 ? '+' : ''}{formatCurrency(pr.netResult)}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+            {statsPlayer && playerStats && playerStats.sessions.length === 0 && (
+              <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', marginVertical: Spacing.md, marginTop: Spacing.sm }}>
+                Sin partidas registradas aún
+              </Text>
+            )}
+            {statsPlayer && !playerStats && (
+              <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', marginVertical: Spacing.md }}>
+                Sin partidas registradas aún
+              </Text>
+            )}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: Spacing.md }}>
+              <TouchableOpacity style={[styles.deleteConfirmBtn, { flex: 1, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Colors.border }]}
+                onPress={() => { setStatsPlayer(null); openEdit(statsPlayer!); }}>
+                <Text style={[styles.deleteConfirmText, { color: Colors.text }]}>Editar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.deleteConfirmBtn, { flex: 2, backgroundColor: Colors.blue }]} onPress={() => setStatsPlayer(null)}>
+                <Text style={styles.deleteConfirmText}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       <Modal visible={!!deleteTarget} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
@@ -411,6 +568,100 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: FontSize.xs,
   },
+  statChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: Spacing.md,
+  },
+  statChip: {
+    flex: 1,
+    backgroundColor: Colors.surfaceRaised,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.sm,
+    alignItems: 'center',
+  },
+  statChipVal: {
+    color: Colors.text,
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+  },
+  statChipLbl: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderRadius: 8,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+  },
+  totalPos: {
+    backgroundColor: '#0d2b15',
+    borderColor: Colors.green,
+  },
+  totalNeg: {
+    backgroundColor: '#2b1010',
+    borderColor: Colors.red,
+  },
+  totalZero: {
+    backgroundColor: Colors.surfaceRaised,
+    borderColor: Colors.border,
+  },
+  totalLabel: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+  totalVal: {
+    fontSize: FontSize.xl,
+    fontWeight: '800',
+  },
+  extremesRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: Spacing.sm,
+  },
+  extremeChip: {
+    flex: 1,
+    backgroundColor: Colors.surfaceRaised,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.sm,
+    alignItems: 'center',
+  },
+  streakRow: {
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: Spacing.sm,
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  historyDate: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+  },
+  historyNet: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
   inputError: {
     borderColor: Colors.red,
   },
@@ -454,6 +705,34 @@ const styles = StyleSheet.create({
   deleteConfirmText: {
     color: Colors.white,
     fontSize: FontSize.md,
+    fontWeight: '700',
+  },
+  winBarSection: {
+    marginBottom: Spacing.sm,
+  },
+  winBarRow: {
+    marginBottom: Spacing.xs,
+  },
+  winBarLabel: {
+    fontSize: FontSize.xs,
+  },
+  winBar: {
+    flexDirection: 'row',
+    height: 10,
+    borderRadius: 5,
+    overflow: 'hidden',
+    backgroundColor: Colors.border,
+  },
+  winBarSegment: {
+    height: 10,
+  },
+  winBarPctRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 3,
+  },
+  winBarPct: {
+    fontSize: FontSize.xs,
     fontWeight: '700',
   },
 });

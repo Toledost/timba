@@ -8,8 +8,10 @@ import {
   StyleSheet,
   Modal,
   Share,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ResultCard } from '../src/components/ResultCard';
 import { useSessionStore, usePlayersStore, useConfigStore, useHistoryStore } from '../src/store';
 import { BANCA_ID } from '../src/types';
 import { formatCurrency, formatDateTime } from '../src/utils/currency';
@@ -30,6 +32,7 @@ export default function HistoryScreen() {
   const [editTxId, setEditTxId] = useState<string | null>(null);
   const [chipCountOpen, setChipCountOpen] = useState(false);
   const [historyOpenOverride, setHistoryOpenOverride] = useState<boolean | null>(null);
+  const [filterPlayerId, setFilterPlayerId] = useState<string | null>(null);
 
   const isHistoryOpen = historyOpenOverride !== null ? historyOpenOverride : true;
 
@@ -68,13 +71,19 @@ export default function HistoryScreen() {
     );
   };
 
-  const transactions = [...(session?.transactions ?? [])].reverse();
+  const allTransactions = [...(session?.transactions ?? [])].reverse();
+  const transactions = filterPlayerId
+    ? allTransactions.filter(
+        (t) => t.fromPlayerId === filterPlayerId || t.toPlayerId === filterPlayerId
+      )
+    : allTransactions;
 
   const getName = (id: string) =>
     id === BANCA_ID ? 'Banca' : playerMap[id]?.alias || playerMap[id]?.name || id;
 
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [deleteSessionTarget, setDeleteSessionTarget] = useState<string | null>(null);
+  const [resultCardSession, setResultCardSession] = useState<typeof archivedSessions[number] | null>(null);
 
   const shareSession = async (as: typeof archivedSessions[number]) => {
     const durationMs = as.durationMs ?? (as.endedAt - as.startedAt);
@@ -113,9 +122,9 @@ export default function HistoryScreen() {
             </Text>
           ) : (
             archivedSessions.map((as) => {
-              const durationMs = as.endedAt - as.startedAt;
-              const durationH = Math.floor(durationMs / 3600000);
-              const durationM = Math.floor((durationMs % 3600000) / 60000);
+              const durMs = as.durationMs ?? (as.endedAt - as.startedAt);
+              const durationH = Math.floor(durMs / 3600000);
+              const durationM = Math.floor((durMs % 3600000) / 60000);
               const durationStr = `${String(durationH).padStart(2, '0')}:${String(durationM).padStart(2, '0')}`;
               return (
                 <View key={as.id} style={styles.archivedCard}>
@@ -123,6 +132,12 @@ export default function HistoryScreen() {
                     <Text style={styles.archivedDate}>{formatDateTime(as.startedAt)}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <Text style={styles.archivedMeta}>{durationStr} · {as.transactionCount} mov.</Text>
+                      <TouchableOpacity
+                        onPress={() => setResultCardSession(as)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.shareBtn}>🏆</Text>
+                      </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => shareSession(as)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -183,6 +198,10 @@ export default function HistoryScreen() {
     </View>
   );
 
+  const sessionPlayerList = session
+    ? session.players.filter((sp) => sp.playerId !== BANCA_ID)
+    : [];
+
   const renderHistorySection = () => (
     <View style={styles.chipSection}>
       <TouchableOpacity
@@ -190,13 +209,36 @@ export default function HistoryScreen() {
         onPress={() => setHistoryOpenOverride((v) => !(v !== null ? v : true))}
         activeOpacity={0.7}
       >
-        <Text style={styles.chipSectionTitle}>📋 Movimientos ({transactions.length})</Text>
+        <Text style={styles.chipSectionTitle}>📋 Movimientos ({transactions.length}{filterPlayerId ? `/${allTransactions.length}` : ''})</Text>
         <Text style={styles.chipSectionChevron}>{isHistoryOpen ? '▲' : '▼'}</Text>
       </TouchableOpacity>
       {isHistoryOpen && (
         <View style={styles.chipSectionBody}>
+          {sessionPlayerList.length > 0 && (
+            <View style={styles.filterRow}>
+              <TouchableOpacity
+                style={[styles.filterChip, !filterPlayerId && styles.filterChipActive]}
+                onPress={() => setFilterPlayerId(null)}
+              >
+                <Text style={[styles.filterChipText, !filterPlayerId && styles.filterChipTextActive]}>Todos</Text>
+              </TouchableOpacity>
+              {sessionPlayerList.map((sp) => (
+                <TouchableOpacity
+                  key={sp.playerId}
+                  style={[styles.filterChip, filterPlayerId === sp.playerId && styles.filterChipActive]}
+                  onPress={() => setFilterPlayerId(filterPlayerId === sp.playerId ? null : sp.playerId)}
+                >
+                  <Text style={[styles.filterChipText, filterPlayerId === sp.playerId && styles.filterChipTextActive]}>
+                    {getName(sp.playerId)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           {transactions.length === 0 ? (
-            <Text style={{ color: Colors.textSecondary, padding: Spacing.md, fontSize: FontSize.sm }}>Sin movimientos</Text>
+            <Text style={{ color: Colors.textSecondary, padding: Spacing.md, fontSize: FontSize.sm }}>
+              {filterPlayerId ? 'Sin movimientos para este jugador' : 'Sin movimientos'}
+            </Text>
           ) : (
             transactions.map((item) => (
               <View key={item.id} style={[styles.txRow, { marginHorizontal: 0, marginBottom: 0, borderRadius: 0, borderWidth: 0, borderBottomWidth: 1, borderBottomColor: Colors.border }]}>
@@ -228,6 +270,21 @@ export default function HistoryScreen() {
         </View>
       )}
     </View>
+  );
+
+  const renderResultCardModal = () => (
+    <Modal visible={!!resultCardSession} transparent animationType="slide" onRequestClose={() => setResultCardSession(null)}>
+      <View style={styles.overlay}>
+        <View style={[styles.confirmSheet, { maxHeight: '90%', width: '100%' }]}>
+          <ScrollView>
+            {resultCardSession && <ResultCard session={resultCardSession} />}
+          </ScrollView>
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => setResultCardSession(null)}>
+            <Text style={styles.cancelBtnText}>Cerrar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 
   const renderDeleteSessionModal = () => (
@@ -278,6 +335,7 @@ export default function HistoryScreen() {
             contentContainerStyle={{ paddingBottom: 32 }}
           />
         {renderDeleteSessionModal()}
+        {renderResultCardModal()}
       </SafeAreaView>
     );
   }
@@ -319,6 +377,7 @@ export default function HistoryScreen() {
       })()}
 
       {renderDeleteSessionModal()}
+      {renderResultCardModal()}
 
       {session && (
         <Modal visible={!!confirmTx} transparent animationType="fade" onRequestClose={() => setConfirmTx(null)}>
@@ -877,5 +936,33 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: FontSize.sm,
     fontWeight: '700',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    padding: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  filterChip: {
+    backgroundColor: Colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  filterChipActive: {
+    borderColor: Colors.blue,
+    backgroundColor: '#0d1f36',
+  },
+  filterChipText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: Colors.blue,
   },
 });
